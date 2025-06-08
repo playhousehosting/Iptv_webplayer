@@ -206,16 +206,21 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', () => {
-        // --- CONSTANTS ---
-        
-        const PROXIES = [
+        // --- CONSTANTS ---          const PROXIES = [
+            // Vercel-optimized proxy list - most reliable first
             'https://api.allorigins.win/raw?url=',
             'https://cors-anywhere.herokuapp.com/',
-            'https://cors.eu.org/',
+            'https://corsproxy.io/?',
+            'https://proxy.cors.sh/',
             'https://api.codetabs.com/v1/proxy?quest=',
-            'https://crossorigin.me/',
+            'https://cors.eu.org/',
+            'https://thingproxy.freeboard.io/fetch/',
             'https://cors.bridged.cc/',
             'https://yacdn.org/proxy/',
+            // Additional reliable proxies for Vercel
+            'https://cors-proxy.fringe.zone/',
+            'https://cors.proxy-server.ga/',
+            'https://api.cors.lol/?url=',
         ];
         
         // --- DOM ELEMENTS ---
@@ -286,59 +291,114 @@
         };
         
         // --- CORE FUNCTIONS ---
-        
-        // Tries to fetch a URL directly first, then using a list of proxies as fallback.
+          // Tries to fetch a URL directly first, then using a list of proxies as fallback.
         // url: The original URL to fetch
         // proxyIndex: The current proxy to try from the PROXIES array (-1 means try direct first)
         // Returns: A promise that resolves with the fetch response
         async function fetchWithProxyFallback(url, proxyIndex = -1) {
-            // First try direct fetch
+            // First try direct fetch with enhanced headers for Vercel/cloud environments
             if (proxyIndex === -1) {
                 console.log(`Trying direct fetch: ${url}`);
                 try {
-                    const response = await fetch(url);
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout for direct
+                    
+                    const response = await fetch(url, {
+                        method: 'GET',
+                        mode: 'cors',
+                        cache: 'no-store',
+                        credentials: 'omit',
+                        signal: controller.signal,
+                        headers: {
+                            'Accept': '*/*',
+                            'Cache-Control': 'no-cache, no-store, must-revalidate',
+                            'Pragma': 'no-cache',
+                            'Expires': '0',
+                            // Add User-Agent for better compatibility
+                            'User-Agent': 'Mozilla/5.0 (compatible; IPTV-WebPlayer/1.0)'
+                        }
+                    });
+                    
+                    clearTimeout(timeoutId);
+                    
                     if (response.ok) {
                         console.log('Direct fetch successful');
                         return response;
                     }
                     console.warn(`Direct fetch failed with status: ${response.status}, trying proxies...`);
                 } catch (error) {
-                    console.warn('Direct fetch failed, trying proxies...', error);
+                    console.warn('Direct fetch failed, trying proxies...', error.name || error.message);
                 }
                 // If direct fails, start with proxy 0
                 return fetchWithProxyFallback(url, 0);
             }
 
-            // Proxy fallback logic
+            // Proxy fallback logic with enhanced error handling for Vercel
             if (proxyIndex >= PROXIES.length) {
-                throw new Error("All proxies failed. Please check your internet connection.");
+                throw new Error(`All ${PROXIES.length} proxies failed. This stream may be incompatible with cloud deployment or require special access.
+
+🔧 VERCEL-SPECIFIC TROUBLESHOOTING:
+• Some streams are blocked in cloud environments
+• Try using a VPN or different network
+• Check if stream works in VLC player
+• Contact stream provider for web-compatible URLs
+
+Technical details: Network restrictions, CORS policies, or geographic blocking may prevent playback on Vercel's edge network.`);
             }
+            
             const proxy = PROXIES[proxyIndex];
             const fetchUrl = proxy + (proxy.includes('?') ? encodeURIComponent(url) : url);
             
-            console.log(`Trying to fetch via proxy #${proxyIndex + 1}: ${proxy}`);
+            console.log(`Trying to fetch via proxy #${proxyIndex + 1}: ${proxy.replace(/^https?:\/\//, '').split('/')[0]}`);
             
             // Update loading screen with proxy attempt info
             if (loadingDetails && proxyIndex > 0) {
                 updateLoadingScreen(
                     loadingTitle.textContent,
                     loadingProgress.textContent,
-                    `Trying alternative server (proxy ${proxyIndex + 1}/${PROXIES.length})...`,
-                    `Previous proxy failed, retrying with different server`,
-                    progressBarContainer.classList.contains('hidden') ? false : true,
-                    progressBar.style.width ? parseInt(progressBar.style.width) : 0                );
+                    `Trying server ${proxyIndex + 1}/${PROXIES.length}...`,
+                    `Previous server failed, retrying with different proxy`,
+                    !progressBarContainer.classList.contains('hidden'),
+                    progressBar.style.width ? parseInt(progressBar.style.width) : 0
+                );
             }
             
             try {
-                const response = await fetch(fetchUrl);
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s timeout for proxies
+                
+                const response = await fetch(fetchUrl, {
+                    method: 'GET',
+                    mode: 'cors',
+                    cache: 'no-store',
+                    credentials: 'omit',
+                    signal: controller.signal,
+                    headers: {
+                        'Accept': '*/*',
+                        'Cache-Control': 'no-cache',
+                        'User-Agent': 'Mozilla/5.0 (compatible; IPTV-WebPlayer/1.0)'
+                    }
+                });
+                
+                clearTimeout(timeoutId);
+                
                 if (!response.ok) {
-                    console.warn(`Proxy ${proxy} failed with status: ${response.status}`);
+                    console.warn(`Proxy ${proxy.replace(/^https?:\/\//, '').split('/')[0]} failed with status: ${response.status}`);
+                    // Wait before trying next proxy to avoid overwhelming servers
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                     return fetchWithProxyFallback(url, proxyIndex + 1);
                 }
-                console.log(`Successfully fetched via proxy: ${proxy}`);
+                
+                console.log(`Successfully fetched via proxy: ${proxy.replace(/^https?:\/\//, '').split('/')[0]}`);
                 return response;
             } catch (error) {
-                console.warn(`Proxy ${proxy} failed with error:`, error);
+                const errorMsg = error.name === 'AbortError' ? 'timeout' : error.message;
+                console.warn(`Proxy ${proxy.replace(/^https?:\/\//, '').split('/')[0]} failed: ${errorMsg}`);
+                
+                // Add progressive delay between proxy attempts
+                const delay = Math.min(500 + (proxyIndex * 200), 2000);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                
                 return fetchWithProxyFallback(url, proxyIndex + 1);
             }
         }
@@ -775,25 +835,48 @@
         }
 
         function tryHlsPlayback(url, name, channelId) {
-            console.log(`Trying HLS.js playback: ${url}`);
-            
-            hls = new Hls({
+            console.log(`Trying HLS.js playback: ${url}`);              hls = new Hls({
                 debug: false,
                 enableWorker: true,
-                lowLatencyMode: true,
-                backBufferLength: 90,
-                fragLoadingMaxRetry: 3,
-                manifestLoadingMaxRetry: 3,
-                loader: class ProxiedLoader extends Hls.DefaultConfig.loader {
-                    constructor(config) { super(config); }
+                lowLatencyMode: false, // Disable for better cloud compatibility
+                backBufferLength: 20, // Reduced for cloud environments
+                maxBufferLength: 30, // Prevent excessive buffering
+                maxBufferSize: 60 * 1000 * 1000, // 60MB max buffer
+                fragLoadingMaxRetry: 6, // Increased retries for cloud
+                manifestLoadingMaxRetry: 6,
+                levelLoadingMaxRetry: 6,
+                fragLoadingTimeOut: 25000, // Increased timeout for cloud latency
+                manifestLoadingTimeOut: 15000,
+                levelLoadingTimeOut: 15000,
+                fragLoadingRetryDelay: 1000, // Delay between retries
+                manifestLoadingRetryDelay: 1000,
+                // Enhanced for Vercel/cloud deployment
+                xhrSetup: function(xhr, url) {
+                    // Set headers for better compatibility in cloud environments
+                    xhr.withCredentials = false;
+                    xhr.timeout = 25000; // 25 second timeout
+                    xhr.setRequestHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+                    xhr.setRequestHeader('Pragma', 'no-cache');
+                    xhr.setRequestHeader('User-Agent', 'Mozilla/5.0 (compatible; IPTV-WebPlayer/1.0; +https://vercel.app)');
+                },
+                fetchSetup: function(context, initParams) {
+                    // Enhanced fetch setup for Vercel with better error handling
+                    const controller = new AbortController();
+                    setTimeout(() => controller.abort(), 25000); // 25s timeout
                     
-                    load(context, config, callbacks) {
-                        // Add common headers for better compatibility (excluding unsafe headers)
-                        if (!context.headers) context.headers = {};
-                        // Note: User-Agent and Referer cannot be set via JavaScript due to browser security
-                        // The browser will automatically set appropriate headers
-                          super.load(context, config, callbacks);
-                    }
+                    return new Request(context.url, {
+                        ...initParams,
+                        cache: 'no-store',
+                        mode: 'cors',
+                        credentials: 'omit',
+                        signal: controller.signal,
+                        headers: {
+                            ...initParams.headers,
+                            'Cache-Control': 'no-cache, no-store, must-revalidate',
+                            'Pragma': 'no-cache',
+                            'User-Agent': 'Mozilla/5.0 (compatible; IPTV-WebPlayer/1.0; +https://vercel.app)'
+                        }
+                    });
                 }
             });
 

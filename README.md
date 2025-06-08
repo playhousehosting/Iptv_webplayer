@@ -34,9 +34,44 @@ A modern, feature-rich web-based IPTV player that supports M3U playlists and Xtr
 - **Browser Support**: Works in modern browsers with HTML5 video
 - **Stream Detection**: Automatic format detection and optimization
 
-## Quick Start
+## 🚀 Deployment & Usage
 
-1. **Open the Player**: Open `webplayer.html` in a modern web browser
+### Online Deployment (Vercel)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/DynamicEndpoints/Iptv_webplayer)
+
+1. **One-Click Deploy**: Click the deploy button above
+2. **Connect GitHub**: Link your GitHub account
+3. **Deploy**: Vercel will automatically deploy from the repository
+4. **Access**: Your player will be available at your Vercel URL
+
+### Local Development (Windows)
+
+#### Option 1: PowerShell Script (Recommended)
+```powershell
+# Run the PowerShell server script
+.\start-server.ps1
+```
+
+#### Option 2: Batch File
+```cmd
+# Run the batch file
+start-server.bat
+```
+
+#### Option 3: Manual Methods
+```bash
+# With Python (recommended)
+python -m http.server 8000
+
+# With Node.js
+npx serve -p 8000
+
+# Or simply open index.html in your browser
+```
+
+### Quick Start Guide
+
+1. **Open the Player**: Access via Vercel URL or `http://localhost:8000`
 2. **Add Playlist**: Click "Manage Playlists" to add M3U or Xtreme Codes sources
 3. **Load Content**: Select a playlist and click "Load Playlist"
 4. **Start Watching**: Click any channel to start streaming

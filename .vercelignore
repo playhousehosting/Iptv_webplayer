@@ -1,0 +1,18 @@
+# Development files
+start-server.ps1
+start-server.bat
+*.md
+.git/
+.github/
+
+# Node modules (if installed locally)
+node_modules/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

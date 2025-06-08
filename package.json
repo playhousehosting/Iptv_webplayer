@@ -1,0 +1,39 @@
+{
+  "name": "iptv-webplayer",
+  "version": "2.0.0",
+  "description": "A modern, feature-rich web-based IPTV player with M3U playlist and Xtreme Codes support",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx serve -p 8000",
+    "dev": "npx serve -p 3000",
+    "serve": "python -m http.server 8000 || npx serve -p 8000",
+    "build": "echo 'No build step required - static HTML application'",
+    "deploy": "vercel --prod"
+  },
+  "keywords": [
+    "iptv",
+    "m3u",
+    "streaming",
+    "webplayer",
+    "hls",
+    "xtreme-codes",
+    "epg",
+    "playlist"
+  ],
+  "author": "IPTV Web Player Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DynamicEndpoints/Iptv_webplayer.git"
+  },
+  "homepage": "https://github.com/DynamicEndpoints/Iptv_webplayer#readme",
+  "bugs": {
+    "url": "https://github.com/DynamicEndpoints/Iptv_webplayer/issues"
+  },
+  "devDependencies": {
+    "serve": "^14.0.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

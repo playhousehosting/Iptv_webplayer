@@ -60,6 +60,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.0] - 2025-06-07
+
+### 🚀 Deployment & Hosting Improvements
+- **Vercel Deployment**: Renamed `webplayer.html` to `index.html` for seamless Vercel deployment
+- **Vercel Configuration**: Added `vercel.json` with CORS headers and routing configuration
+- **Local Development Scripts**: 
+  - PowerShell script (`start-server.ps1`) with multiple server options
+  - Windows batch file (`start-server.bat`) for easy local development
+  - Automatic port detection and browser opening
+- **Package.json**: Added Node.js package configuration for better tooling support
+
+### 🔧 Windows Compatibility
+- **Multiple Server Options**: Python HTTP server, Node.js serve, PowerShell built-in server
+- **One-Click Deploy**: Vercel deploy button for instant online deployment
+- **Local Testing**: Enhanced local development experience on Windows
+
+### 📝 Documentation Updates
+- **Deployment Guide**: Comprehensive deployment instructions for Vercel and local development
+- **Windows Setup**: Step-by-step guide for Windows users
+- **Repository Structure**: Updated file references from `webplayer.html` to `index.html`
+
+---
+
 ## Upcoming Features (Roadmap)
 
 ### [2.1.0] - Planned
