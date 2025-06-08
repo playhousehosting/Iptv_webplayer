@@ -1,0 +1,74 @@
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows
+*.tmp
+*.temp
+*.log
+Desktop.ini
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.sublime-workspace
+.sublime-project
+
+# Temporary files
+temp/
+tmp/
+*.cache
+
+# Build and dist directories (not applicable for this project but good practice)
+build/
+dist/
+node_modules/
+
+# Environment and config files (if added in future)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+config.local.js
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# User-specific playlist exports (if feature added)
+exports/
+user_playlists/
+
+# Browser debugging
+*.har
+
+# Archive files
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Documentation builds (if added)
+docs/
+documentation/
+
+# Test coverage (if tests added)
+coverage/
+
+# Package lock files (not applicable but good practice)
+package-lock.json
+yarn.lock
+
+# Any local development files
+local/
+dev/

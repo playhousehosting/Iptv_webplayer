@@ -1,0 +1,1816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Feature-Rich M3U Streamer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">    <style>
+        body { font-family: 'Inter', sans-serif; }
+        #channel-list-container {
+            scrollbar-width: thin;
+            scrollbar-color: #4a5568 #1a202c;
+        }
+        #channel-list-container::-webkit-scrollbar { width: 8px; }
+        #channel-list-container::-webkit-scrollbar-track { background: #1a202c; }
+        #channel-list-container::-webkit-scrollbar-thumb { background-color: #4a5568; border-radius: 4px; }
+        .channel-item.active { background-color: #2b6cb0; box-shadow: 0 0 0 2px #60a5fa; }
+        .favorite-star.favorited { color: #f6e05e; /* yellow-400 */ }
+        .loader { border-top-color: #3498db; }
+        
+        /* Enhanced visual feedback */
+        .channel-item:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .channel-item { transition: all 0.2s ease; }
+        
+        /* Fullscreen button styling */
+        .control-btn { 
+            background: rgba(0,0,0,0.6); 
+            backdrop-filter: blur(4px);
+            transition: all 0.2s ease;
+        }
+        .control-btn:hover { background: rgba(0,0,0,0.8); transform: scale(1.05); }
+        
+        /* Better loading animation */
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .loading-text { animation: pulse 1.5s ease-in-out infinite; }
+        
+        /* Mobile improvements */
+        @media (max-width: 768px) {
+            #channel-list { grid-template-columns: 1fr !important; }
+            .channel-item { padding: 16px !important; }
+        }
+        
+        /* Status indicators */
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .status-online { background-color: #10b981; }
+        .status-loading { background-color: #f59e0b; animation: pulse 1s infinite; }
+        .status-error { background-color: #ef4444; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white h-screen flex flex-col">    <!-- Video Player Section -->
+    <div class="w-full bg-black flex-shrink-0 relative group">
+        <video id="video-player" class="w-full h-full max-h-[50vh]" controls preload="metadata"></video>
+        <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+            <button id="fullscreen-btn" title="Fullscreen (F)" class="control-btn text-white p-2 rounded-full hover:bg-opacity-75">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M1.5 1a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 0h4a.5.5 0 0 1 0 1h-4zM10 .5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 16 1.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zM.5 10a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 0 14.5v-4a.5.5 0 0 1 .5-.5zm15 0a.5.5 0 0 1 .5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5z"/>
+                </svg>
+            </button>
+            <button id="pip-btn" title="Picture-in-Picture (P)" class="control-btn text-white p-2 rounded-full hover:bg-opacity-75">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M0 3.5A1.5 1.5 0 0 1 1.5 2h13A1.5 1.5 0 0 1 16 3.5v9A1.5 1.5 0 0 1 14.5 14h-13A1.5 1.5 0 0 1 0 12.5v-9zM1.5 3a.5.5 0 0 0-.5.5v9a.5.5 0 0 0 .5.5h13a.5.5 0 0 0 .5-.5v-9a.5.5 0 0 0-.5-.5h-13z"/>
+                    <path d="M8 8.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-.5.5h-5a.5.5 0 0 1-.5-.5v-3z"/>
+                </svg>
+            </button>
+        </div>
+        <div id="current-channel" class="text-center py-2 text-base font-semibold bg-gray-800 flex items-center justify-center">
+            <span id="status-indicator" class="status-indicator mr-2" style="display: none;"></span>
+            <span id="channel-name">Select a channel to start playing</span>
+        </div>
+    </div>    <!-- Controls Section -->
+    <div class="flex-shrink-0 p-3 bg-gray-800 border-t border-gray-700 space-y-3">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+            <button id="manage-playlists-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="mr-2" viewBox="0 0 16 16">
+                    <path d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5z"/>
+                </svg>
+                Manage Playlists
+            </button>
+            <select id="playlist-select" class="bg-gray-700 text-white border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></select>
+            <input id="epg-url" type="text" class="w-full bg-gray-700 text-white border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Enter EPG XMLTV URL (optional)">
+            <button id="load-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="mr-2" viewBox="0 0 16 16">
+                    <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                    <path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/>
+                </svg>
+                Load Playlist
+            </button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <input id="search-input" type="text" class="w-full bg-gray-700 text-white border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Search channels... (Ctrl+F)">
+            <select id="group-filter" class="bg-gray-700 text-white border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></select>
+            <select id="quality-select" class="bg-gray-700 text-white border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="auto">Auto Quality</option>
+                <option value="high">High Quality</option>
+                <option value="medium">Medium Quality</option>
+                <option value="low">Low Quality</option>
+            </select>
+        </div>        <div class="text-xs text-gray-400 text-center flex items-center justify-between">
+            <span>Shortcuts: Space (Play/Pause) • ↑↓ (Volume) • ←→ (Seek) • F (Fullscreen) • P (PiP) • Ctrl+F (Search)</span>
+            <button id="debug-toggle" class="ml-4 bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white px-2 py-1 rounded text-xs transition-colors" title="Show debug info">
+                Debug
+            </button>
+        </div>
+    </div>    
+    <div id="error-message" class="text-red-400 text-sm p-3 bg-red-900 border-l-4 border-red-500 hidden flex items-center">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="mr-2 flex-shrink-0" viewBox="0 0 16 16">
+            <path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/>
+        </svg>
+        <span id="error-text"></span>
+        <button id="close-error" class="ml-auto text-red-300 hover:text-red-100">×</button>
+    </div>
+
+    <!-- Success Message -->
+    <div id="success-message" class="text-green-400 text-sm p-3 bg-green-900 border-l-4 border-green-500 hidden flex items-center">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="mr-2 flex-shrink-0" viewBox="0 0 16 16">
+            <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+            <path d="M10.97 4.97a.235.235 0 0 0-.02.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.061L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-1.071-1.05z"/>
+        </svg>
+        <span id="success-text"></span>
+        <button id="close-success" class="ml-auto text-green-300 hover:text-green-100">×</button>
+    </div>    <!-- Channel List -->
+    <main id="channel-list-container" class="flex-grow overflow-y-auto p-3">
+        <div id="channel-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            <p class="text-gray-400 col-span-full text-center">Manage and load a playlist to get started.</p>
+        </div>
+    </main>
+
+    <!-- Debug Panel -->
+    <div id="debug-panel" class="fixed bottom-4 right-4 bg-gray-800 border border-gray-600 rounded-lg p-4 max-w-md hidden z-30">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-white font-semibold">Stream Debug Info</h3>
+            <button id="close-debug" class="text-gray-400 hover:text-white">×</button>
+        </div>
+        <div id="debug-content" class="text-sm text-gray-300 space-y-2">
+            <div><strong>Stream URL:</strong> <span id="debug-url" class="break-all">-</span></div>
+            <div><strong>Method:</strong> <span id="debug-method">-</span></div>
+            <div><strong>Status:</strong> <span id="debug-status">-</span></div>
+            <div><strong>Browser Support:</strong> <span id="debug-support">-</span></div>
+            <div><strong>Attempts:</strong> <span id="debug-attempts">-</span></div>
+            <div><strong>Last Error:</strong> <span id="debug-error" class="text-red-400">-</span></div>
+        </div>
+        <div class="mt-3 space-x-2">
+            <button id="debug-copy" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs">Copy Info</button>
+            <button id="debug-test" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs">Test Stream</button>
+        </div>
+    </div><!-- Loading Spinner -->
+    <div id="loader-overlay" class="absolute inset-0 bg-black bg-opacity-75 flex flex-col items-center justify-center hidden z-50">
+        <div class="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-24 w-24 animate-spin mb-4"></div>
+        <div id="loading-title" class="text-white text-lg font-semibold loading-text mb-2">Loading playlist...</div>
+        <div id="loading-progress" class="text-blue-400 text-base font-medium mb-2"></div>
+        <div id="loading-details" class="text-gray-400 text-sm text-center max-w-md">
+            Please wait while we fetch your channels
+        </div>
+        <div id="loading-stats" class="text-gray-500 text-xs mt-4 text-center"></div>
+        
+        <!-- Progress Bar -->
+        <div class="w-80 bg-gray-700 rounded-full h-2 mt-4 hidden" id="progress-bar-container">
+            <div id="progress-bar" class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+        </div>
+    </div>
+
+    <!-- Playlist Management Modal -->    <div id="playlist-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center hidden z-40">
+        <div class="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-lg space-y-4">
+            <h2 class="text-2xl font-bold">Manage Playlists</h2>
+            <div id="playlist-manager-list" class="space-y-2 max-h-64 overflow-y-auto"></div>
+            
+            <!-- Playlist Type Toggle -->
+            <div class="space-y-4 border-t border-gray-600 pt-4">
+                <div class="flex items-center space-x-4">
+                    <label class="text-sm font-medium">Playlist Type:</label>
+                    <div class="flex rounded-lg overflow-hidden">
+                        <button id="m3u-mode-btn" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium transition-colors">M3U URL</button>
+                        <button id="xtreme-mode-btn" class="px-4 py-2 bg-gray-600 text-white text-sm font-medium transition-colors">Xtreme Codes</button>
+                    </div>
+                </div>
+                
+                <!-- M3U Mode Fields -->
+                <div id="m3u-fields" class="space-y-2">
+                    <input type="text" id="new-playlist-name" placeholder="Playlist Name" class="w-full bg-gray-700 rounded p-2">
+                    <input type="url" id="new-playlist-url" placeholder="Playlist M3U URL" class="w-full bg-gray-700 rounded p-2">
+                </div>
+                
+                <!-- Xtreme Codes Mode Fields -->
+                <div id="xtreme-fields" class="space-y-2 hidden">
+                    <input type="text" id="xtreme-playlist-name" placeholder="Playlist Name" class="w-full bg-gray-700 rounded p-2">
+                    <input type="url" id="xtreme-portal-url" placeholder="Portal URL (e.g., http://example.com:8080)" class="w-full bg-gray-700 rounded p-2">
+                    <input type="text" id="xtreme-username" placeholder="Username" class="w-full bg-gray-700 rounded p-2">
+                    <input type="password" id="xtreme-password" placeholder="Password" class="w-full bg-gray-700 rounded p-2">
+                    <div class="text-xs text-gray-400 mt-1">
+                        Enter your Xtreme Codes panel credentials. The system will automatically generate the M3U URL.
+                    </div>
+                </div>
+                
+                <button id="add-playlist-btn" class="w-full bg-green-600 hover:bg-green-700 p-2 rounded">Add Playlist</button>
+            </div>
+            <button id="close-modal-btn" class="mt-4 w-full bg-gray-600 hover:bg-gray-700 p-2 rounded">Close</button>
+        </div>
+    </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // --- CONSTANTS ---
+        
+        const PROXIES = [
+            'https://api.allorigins.win/raw?url=',
+            'https://cors-anywhere.herokuapp.com/',
+            'https://cors.eu.org/',
+            'https://api.codetabs.com/v1/proxy?quest=',
+            'https://crossorigin.me/',
+            'https://cors.bridged.cc/',
+            'https://yacdn.org/proxy/',
+        ];
+        
+        // --- DOM ELEMENTS ---
+        const videoPlayer = document.getElementById('video-player');
+        const currentChannelDisplay = document.getElementById('current-channel');
+        const channelNameDisplay = document.getElementById('channel-name');
+        const statusIndicator = document.getElementById('status-indicator');
+        const loadBtn = document.getElementById('load-btn');
+        const channelList = document.getElementById('channel-list');
+        const searchInput = document.getElementById('search-input');
+        const groupFilter = document.getElementById('group-filter');
+        const qualitySelect = document.getElementById('quality-select');
+        const epgUrlInput = document.getElementById('epg-url');
+        const errorMessage = document.getElementById('error-message');
+        const errorText = document.getElementById('error-text');
+        const successMessage = document.getElementById('success-message');
+        const successText = document.getElementById('success-text');
+        const closeErrorBtn = document.getElementById('close-error');
+        const closeSuccessBtn = document.getElementById('close-success');
+        const loaderOverlay = document.getElementById('loader-overlay');
+        const loadingTitle = document.getElementById('loading-title');
+        const loadingProgress = document.getElementById('loading-progress');
+        const loadingDetails = document.getElementById('loading-details');
+        const loadingStats = document.getElementById('loading-stats');
+        const progressBarContainer = document.getElementById('progress-bar-container');
+        const progressBar = document.getElementById('progress-bar');
+        const pipBtn = document.getElementById('pip-btn');
+        const fullscreenBtn = document.getElementById('fullscreen-btn');
+        const managePlaylistsBtn = document.getElementById('manage-playlists-btn');
+        const playlistModal = document.getElementById('playlist-modal');
+        const closeModalBtn = document.getElementById('close-modal-btn');
+        const playlistSelect = document.getElementById('playlist-select');
+        const playlistManagerList = document.getElementById('playlist-manager-list');
+        const addPlaylistBtn = document.getElementById('add-playlist-btn');
+        const newPlaylistNameInput = document.getElementById('new-playlist-name');
+        const newPlaylistUrlInput = document.getElementById('new-playlist-url');
+        
+        // Xtreme Codes elements
+        const m3uModeBtn = document.getElementById('m3u-mode-btn');
+        const xtremeModeBtn = document.getElementById('xtreme-mode-btn');
+        const m3uFields = document.getElementById('m3u-fields');
+        const xtremeFields = document.getElementById('xtreme-fields');
+        const xtremePlaylistNameInput = document.getElementById('xtreme-playlist-name');
+        const xtremePortalUrlInput = document.getElementById('xtreme-portal-url');
+        const xtremeUsernameInput = document.getElementById('xtreme-username');
+        const xtremePasswordInput = document.getElementById('xtreme-password');
+        
+        // Debug panel elements
+        const debugPanel = document.getElementById('debug-panel');
+        const debugToggleBtn = document.getElementById('debug-toggle');
+        const closeDebugBtn = document.getElementById('close-debug');
+        const debugUrl = document.getElementById('debug-url');
+        const debugMethod = document.getElementById('debug-method');
+        const debugStatus = document.getElementById('debug-status');
+        const debugSupport = document.getElementById('debug-support');
+        const debugAttempts = document.getElementById('debug-attempts');
+        const debugError = document.getElementById('debug-error');
+        const debugCopyBtn = document.getElementById('debug-copy');
+        const debugTestBtn = document.getElementById('debug-test');
+        
+        // --- STATE MANAGEMENT ---
+        let hls = null;
+        let currentChannelIndex = -1;
+        let displayedChannels = [];
+        let appState = {
+            allChannels: [], epgData: {}, favorites: [], recents: [],
+            playlists: [], activePlaylistUrl: '', volume: 0.8, currentQuality: 'auto'
+        };
+        
+        // --- CORE FUNCTIONS ---
+        
+        // Tries to fetch a URL directly first, then using a list of proxies as fallback.
+        // url: The original URL to fetch
+        // proxyIndex: The current proxy to try from the PROXIES array (-1 means try direct first)
+        // Returns: A promise that resolves with the fetch response
+        async function fetchWithProxyFallback(url, proxyIndex = -1) {
+            // First try direct fetch
+            if (proxyIndex === -1) {
+                console.log(`Trying direct fetch: ${url}`);
+                try {
+                    const response = await fetch(url);
+                    if (response.ok) {
+                        console.log('Direct fetch successful');
+                        return response;
+                    }
+                    console.warn(`Direct fetch failed with status: ${response.status}, trying proxies...`);
+                } catch (error) {
+                    console.warn('Direct fetch failed, trying proxies...', error);
+                }
+                // If direct fails, start with proxy 0
+                return fetchWithProxyFallback(url, 0);
+            }
+
+            // Proxy fallback logic
+            if (proxyIndex >= PROXIES.length) {
+                throw new Error("All proxies failed. Please check your internet connection.");
+            }
+            const proxy = PROXIES[proxyIndex];
+            const fetchUrl = proxy + (proxy.includes('?') ? encodeURIComponent(url) : url);
+            
+            console.log(`Trying to fetch via proxy #${proxyIndex + 1}: ${proxy}`);
+            
+            // Update loading screen with proxy attempt info
+            if (loadingDetails && proxyIndex > 0) {
+                updateLoadingScreen(
+                    loadingTitle.textContent,
+                    loadingProgress.textContent,
+                    `Trying alternative server (proxy ${proxyIndex + 1}/${PROXIES.length})...`,
+                    `Previous proxy failed, retrying with different server`,
+                    progressBarContainer.classList.contains('hidden') ? false : true,
+                    progressBar.style.width ? parseInt(progressBar.style.width) : 0                );
+            }
+            
+            try {
+                const response = await fetch(fetchUrl);
+                if (!response.ok) {
+                    console.warn(`Proxy ${proxy} failed with status: ${response.status}`);
+                    return fetchWithProxyFallback(url, proxyIndex + 1);
+                }
+                console.log(`Successfully fetched via proxy: ${proxy}`);
+                return response;
+            } catch (error) {
+                console.warn(`Proxy ${proxy} failed with error:`, error);
+                return fetchWithProxyFallback(url, proxyIndex + 1);
+            }
+        }
+        
+        function init() {
+            loadStateFromStorage();
+            renderPlaylistSelect();
+            renderPlaylistManagerList();
+            videoPlayer.volume = appState.volume;
+            qualitySelect.value = appState.currentQuality;
+            setupKeyboardShortcuts();
+            setupMediaSession();
+            setupVideoEventListeners();
+            if (appState.activePlaylistUrl) {
+                const playlist = appState.playlists.find(p => p.url === appState.activePlaylistUrl);
+                if (playlist) {
+                    playlistSelect.value = playlist.url;
+                    epgUrlInput.value = playlist.epgUrl || '';
+                    loadPlaylist();
+                }
+            }
+        }
+
+        function setupVideoEventListeners() {
+            videoPlayer.addEventListener('loadstart', () => {
+                console.log('Video load started');
+            });
+
+            videoPlayer.addEventListener('loadedmetadata', () => {
+                console.log('Video metadata loaded');
+            });
+
+            videoPlayer.addEventListener('canplay', () => {
+                console.log('Video can start playing');
+            });
+
+            videoPlayer.addEventListener('playing', () => {
+                console.log('Video is playing');
+                hideError(); // Hide any previous errors when video starts playing
+            });
+
+            videoPlayer.addEventListener('error', (e) => {
+                const error = videoPlayer.error;
+                console.error('Video element error:', error);
+                
+                let errorMessage = 'Unknown playback error';
+                if (error) {
+                    switch(error.code) {
+                        case MediaError.MEDIA_ERR_ABORTED:
+                            errorMessage = 'Video playback was aborted';
+                            break;
+                        case MediaError.MEDIA_ERR_NETWORK:
+                            errorMessage = 'Network error occurred while loading video';
+                            break;
+                        case MediaError.MEDIA_ERR_DECODE:
+                            errorMessage = 'Video format not supported or corrupted';
+                            break;
+                        case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+                            errorMessage = 'Video format or source not supported';
+                            break;
+                        default:
+                            errorMessage = `Video error (code: ${error.code})`;
+                    }
+                    
+                    if (error.message) {
+                        errorMessage += `: ${error.message}`;
+                    }
+                }
+                
+                showError(errorMessage);
+                updateStatus('error', 'Playback error');
+            });
+
+            videoPlayer.addEventListener('stalled', () => {
+                console.log('Video playback stalled');
+                updateStatus('loading', 'Buffering...');
+            });
+
+            videoPlayer.addEventListener('waiting', () => {
+                console.log('Video waiting for data');
+                updateStatus('loading', 'Buffering...');
+            });
+
+            videoPlayer.addEventListener('timeupdate', () => {
+                // Update status back to playing if we were buffering
+                if (statusIndicator.classList.contains('status-loading') && !videoPlayer.paused) {
+                    const currentChannelName = channelNameDisplay.textContent.replace('Now Playing: ', '');
+                    updateStatus('online', `Playing: ${currentChannelName}`);
+                }
+            });
+        }async function loadPlaylist() {
+            const playlistUrl = playlistSelect.value;
+            const epgUrl = epgUrlInput.value.trim();
+            if (!playlistUrl) {
+                showError("Please select a playlist.");
+                return;
+            }
+
+            showLoadingScreen();
+            hideError();
+            hideSuccess();
+            resetContent();
+            updateStatus('loading', 'Loading playlist...');
+
+            try {
+                // Step 1: Fetch M3U playlist
+                updateLoadingScreen(
+                    'Fetching Playlist...',
+                    'Step 1 of 3',
+                    'Downloading M3U playlist file from server',
+                    'This may take a few seconds depending on server response time',
+                    true,
+                    10
+                );
+
+                const startTime = Date.now();
+                const m3uResponse = await fetchWithProxyFallback(playlistUrl);
+                const fetchTime = ((Date.now() - startTime) / 1000).toFixed(1);
+                
+                updateLoadingScreen(
+                    'Processing Playlist...',
+                    'Step 2 of 3',
+                    'Parsing M3U data and extracting channel information',
+                    `Downloaded in ${fetchTime}s - Processing channels...`,
+                    true,
+                    40
+                );
+
+                const playlistData = await m3uResponse.text();
+                const parseStartTime = Date.now();
+                appState.allChannels = parseM3U(playlistData, playlistUrl);
+                const parseTime = ((Date.now() - parseStartTime) / 1000).toFixed(1);
+
+                if (appState.allChannels.length === 0) {
+                    throw new Error("No valid channels found in the playlist");
+                }
+
+                updateLoadingScreen(
+                    'Channels Loaded!',
+                    'Step 2 Complete',
+                    `Found ${appState.allChannels.length} channels in playlist`,
+                    `Parsed ${appState.allChannels.length} channels in ${parseTime}s`,
+                    true,
+                    70
+                );
+
+                // Step 3: Load EPG if provided
+                if (epgUrl) {
+                    updateLoadingScreen(
+                        'Loading EPG Data...',
+                        'Step 3 of 3',
+                        'Downloading Electronic Program Guide (TV schedules)',
+                        'This provides show information and schedules for channels',
+                        true,
+                        75
+                    );
+
+                    try {
+                        const epgStartTime = Date.now();
+                        const epgResponse = await fetchWithProxyFallback(epgUrl);
+                        const epgDataText = await epgResponse.text();
+                        
+                        updateLoadingScreen(
+                            'Processing EPG...',
+                            'Step 3 of 3',
+                            'Parsing TV schedule data and matching with channels',
+                            'Processing program information...',
+                            true,
+                            90
+                        );
+                        
+                        appState.epgData = parseEPG(epgDataText);
+                        const epgTime = ((Date.now() - epgStartTime) / 1000).toFixed(1);
+                        const epgChannelCount = Object.keys(appState.epgData).length;
+                        
+                        updateLoadingScreen(
+                            'Complete!',
+                            'All Steps Done',
+                            `Successfully loaded ${appState.allChannels.length} channels with EPG data`,
+                            `EPG loaded in ${epgTime}s for ${epgChannelCount} channels`,
+                            true,
+                            100
+                        );
+                        
+                        showSuccess(`Loaded ${appState.allChannels.length} channels with EPG data for ${epgChannelCount} channels`);
+                    } catch(e) {
+                         console.warn(`Could not load EPG: ${e.message}`);
+                         updateLoadingScreen(
+                            'Partial Success',
+                            'EPG Failed',
+                            `Loaded ${appState.allChannels.length} channels (EPG data unavailable)`,
+                            `EPG failed: ${e.message}`,
+                            true,
+                            100
+                        );
+                         showSuccess(`Loaded ${appState.allChannels.length} channels (EPG failed to load)`);
+                    }
+                } else {
+                    updateLoadingScreen(
+                        'Complete!',
+                        'All Steps Done',
+                        `Successfully loaded ${appState.allChannels.length} channels`,
+                        'No EPG URL provided - skipping program guide',
+                        true,
+                        100
+                    );
+                    showSuccess(`Loaded ${appState.allChannels.length} channels`);
+                }
+                
+                const currentPlaylist = appState.playlists.find(p => p.url === playlistUrl);
+                if (currentPlaylist) { currentPlaylist.epgUrl = epgUrl; }
+                appState.activePlaylistUrl = playlistUrl;
+                saveStateToStorage();
+                
+                // Final update before closing
+                setTimeout(() => {
+                    populateGroupFilter();
+                    filterAndDisplayChannels();
+                    updateStatus('online', 'Playlist loaded successfully');
+                    hideLoadingScreen();
+                }, 800); // Give user time to see completion message
+                
+            } catch (error) {
+                console.error('Error loading playlist:', error);
+                updateLoadingScreen(
+                    'Error!',
+                    'Loading Failed',
+                    `Failed to load playlist: ${error.message}`,
+                    'Please check your internet connection and playlist URL',
+                    false,
+                    0
+                );
+                
+                setTimeout(() => {
+                    hideLoadingScreen();
+                    showError(`Failed to load playlist: ${error.message}`);
+                    updateStatus('error', 'Failed to load playlist');
+                }, 2000);
+            }
+        }
+          function filterAndDisplayChannels() {
+            const selectedGroup = groupFilter.value;
+            const searchQuery = searchInput.value.toLowerCase();
+            let channelsToDisplay = appState.allChannels;
+
+            if (selectedGroup === 'favorites') {
+                channelsToDisplay = appState.allChannels.filter(c => appState.favorites.includes(c.id));
+            } else if (selectedGroup === 'recents') {
+                 channelsToDisplay = appState.recents.map(id => appState.allChannels.find(c => c.id === id)).filter(Boolean);
+            } else if (selectedGroup !== 'all') {
+                channelsToDisplay = appState.allChannels.filter(c => c.group === selectedGroup);
+            }
+            if (searchQuery) {
+                channelsToDisplay = channelsToDisplay.filter(c => c.name.toLowerCase().includes(searchQuery));
+            }
+            displayedChannels = channelsToDisplay;
+            displayChannels(channelsToDisplay);
+        }
+
+        function displayChannels(channels) {
+            channelList.innerHTML = '';
+            if (channels.length === 0) {
+                channelList.innerHTML = '<p class="text-gray-400 col-span-full text-center">No channels found.</p>';
+                return;
+            }
+            channels.forEach(channel => {
+                const isFavorite = appState.favorites.includes(channel.id);
+                const { now, next } = getEpgForChannel(channel.id);
+                const channelCard = document.createElement('div');
+                channelCard.className = 'channel-item bg-gray-700 rounded-lg p-3 flex flex-col justify-between cursor-pointer transition hover:bg-gray-600';
+                const proxiedLogo = channel.logo ? `${PROXIES[0]}${encodeURIComponent(channel.logo)}` : 'https://placehold.co/40x40/374151/ffffff?text=?';
+
+                channelCard.innerHTML = `
+                    <div class="flex items-start space-x-3">
+                        <img src="${proxiedLogo}" onerror="this.onerror=null;this.src='https://placehold.co/40x40/374151/ffffff?text=?';" alt="logo" class="w-10 h-10 rounded-full object-cover bg-gray-600 flex-shrink-0">
+                        <span class="font-semibold flex-grow">${channel.name}</span>
+                        <span class="favorite-star text-2xl ${isFavorite ? 'favorited' : 'text-gray-500'}" data-channel-id="${channel.id}">&#9733;</span>
+                    </div>
+                    <div class="text-xs text-gray-300 mt-2 pl-13">
+                        <p class="truncate" title="${now || 'No EPG data'}"><strong>Now:</strong> ${now || '...'}</p>
+                        <p class="truncate" title="${next || 'No EPG data'}"><strong>Next:</strong> ${next || '...'}</p>
+                    </div>`;                channelCard.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('favorite-star')) {
+                        toggleFavorite(channel.id);
+                        e.stopPropagation();
+                    } else {
+                        const channelIndex = displayedChannels.findIndex(c => c.id === channel.id);
+                        currentChannelIndex = channelIndex;
+                        playChannel(channel.url, channel.name, channel.id);
+                        document.querySelectorAll('.channel-item').forEach(item => item.classList.remove('active'));
+                        channelCard.classList.add('active');
+                    }
+                });
+                channelList.appendChild(channelCard);
+            });
+        }
+        
+        function convertXtremeCodesUrl(url) {
+            // Handle Xtreme Codes .ts URLs by converting to M3U8 playlist
+            if (url.includes('.ts') && !url.includes('.m3u8')) {
+                // Check if this looks like an Xtreme Codes stream URL
+                // Format: http://server:port/username/password/streamid.ts
+                const tsRegex = /^(https?:\/\/[^\/]+\/[^\/]+\/[^\/]+\/)(\d+)\.ts$/;
+                const match = url.match(tsRegex);
+                
+                if (match) {
+                    // Convert to M3U8 URL: http://server:port/username/password/streamid.m3u8
+                    const m3u8Url = match[1] + match[2] + '.m3u8';
+                    console.log(`Converting Xtreme Codes .ts URL to M3U8: ${url} -> ${m3u8Url}`);
+                    return m3u8Url;
+                }
+                
+                // Alternative format check: look for numeric stream ID at the end
+                const altRegex = /^(.+\/)(\d+)\.ts$/;
+                const altMatch = url.match(altRegex);
+                
+                if (altMatch) {
+                    const m3u8Url = altMatch[1] + altMatch[2] + '.m3u8';
+                    console.log(`Converting alternative .ts URL to M3U8: ${url} -> ${m3u8Url}`);
+                    return m3u8Url;
+                }
+            }
+              return url; // Return original URL if no conversion needed
+        }
+
+        function playChannel(url, name, channelId) {
+            if (hls) hls.destroy();
+            updateStatus('loading', `Loading ${name}...`);
+            
+            // Reset debug state for new channel
+            resetDebugState();
+            updateDebugInfo(url, 'Initializing', 'Starting playback');
+
+            // Clean and validate the URL
+            const cleanUrl = url.trim();
+            if (!cleanUrl) {
+                const error = 'Invalid stream URL';
+                showError(error);
+                updateStatus('error', 'Invalid URL');
+                updateDebugInfo('', '', 'Failed', error);
+                return;
+            }
+
+            // Convert Xtreme Codes .ts URLs to M3U8
+            const convertedUrl = convertXtremeCodesUrl(cleanUrl);
+            if (convertedUrl !== cleanUrl) {
+                console.log(`URL converted from .ts to M3U8: ${cleanUrl} -> ${convertedUrl}`);
+                updateDebugInfo(convertedUrl, 'URL Conversion', 'Converted .ts to M3U8');
+            }
+            
+            console.log(`Attempting to play: ${convertedUrl}`);
+            
+            // Reset video element
+            videoPlayer.src = '';
+            videoPlayer.load();
+
+            // Determine stream type and use appropriate playback method
+            if (convertedUrl.includes('.m3u8') || convertedUrl.includes('m3u8')) {
+                // HLS Stream - try HLS.js first, then native
+                if (Hls.isSupported()) {
+                    updateDebugInfo(convertedUrl, 'HLS.js', 'Attempting HLS.js playback');
+                    tryHlsPlayback(convertedUrl, name, channelId);
+                } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+                    // Native HLS support (Safari, iOS)
+                    console.log('Using native HLS support');
+                    updateDebugInfo(convertedUrl, 'Native HLS', 'Attempting native HLS playback');
+                    tryNativeHlsPlayback(convertedUrl, name, channelId);
+                } else {
+                    // No HLS support, try direct
+                    console.log('No HLS support, trying direct playback');
+                    updateDebugInfo(convertedUrl, 'Direct', 'No HLS support, trying direct');
+                    tryDirectPlayback(convertedUrl, name, channelId);
+                }            } else {
+                // Handle .ts files and other non-HLS streams
+                if (convertedUrl.includes('.ts')) {
+                    console.log('.ts stream detected - may need special handling');
+                    updateDebugInfo(convertedUrl, 'Transport Stream', '.ts file detected, trying enhanced playback');
+                    
+                    // Try HLS.js first for .ts files as they might be valid HLS segments
+                    if (Hls.isSupported()) {
+                        console.log('Trying HLS.js for .ts stream');
+                        tryHlsPlayback(convertedUrl, name, channelId);
+                    } else {
+                        // Fallback to direct playback with enhanced compatibility
+                        console.log('No HLS support, trying direct .ts playback');
+                        tryDirectPlayback(convertedUrl, name, channelId);
+                    }
+                } else {
+                    // Non-HLS streams (MP4, FLV, etc.) - try direct first
+                    console.log('Non-HLS stream detected, trying direct playback');
+                    updateDebugInfo(convertedUrl, 'Direct', 'Non-HLS stream detected');
+                    tryDirectPlayback(convertedUrl, name, channelId);
+                }
+            }
+
+            channelNameDisplay.textContent = `Loading: ${name}`;
+            addRecent(channelId);
+            updateMediaSession(name);
+        }        function convertXtremeCodesUrl(url) {
+            // Handle Xtreme Codes .ts URLs by converting to M3U8 playlist
+            if (url.includes('.ts') && !url.includes('.m3u8')) {
+                console.log(`Detected .ts URL, attempting conversion: ${url}`);
+                
+                // Check if this looks like an Xtreme Codes stream URL
+                // Format: http://server:port/username/password/streamid.ts
+                const tsRegex = /^(https?:\/\/[^\/]+\/[^\/]+\/[^\/]+\/)(\d+)\.ts$/;
+                const match = url.match(tsRegex);
+                
+                if (match) {
+                    // Convert to M3U8 URL: http://server:port/username/password/streamid.m3u8
+                    const m3u8Url = match[1] + match[2] + '.m3u8';
+                    console.log(`Converting Xtreme Codes .ts URL to M3U8: ${url} -> ${m3u8Url}`);
+                    return m3u8Url;
+                }
+                
+                // Alternative format check: look for numeric stream ID at the end
+                const altRegex = /^(.+\/)(\d+)\.ts$/;
+                const altMatch = url.match(altRegex);
+                
+                if (altMatch) {
+                    const m3u8Url = altMatch[1] + altMatch[2] + '.m3u8';
+                    console.log(`Converting alternative .ts URL to M3U8: ${url} -> ${m3u8Url}`);
+                    return m3u8Url;
+                }
+                
+                console.log(`Could not convert .ts URL to M3U8 format: ${url}`);
+                
+                // If conversion fails, still try to play with enhanced headers
+                // Some Xtreme Codes servers may serve direct TS streams
+                console.log('Will attempt to play .ts stream directly with enhanced compatibility');
+            }
+            
+            return url; // Return original URL if no conversion needed
+        }
+
+        function tryHlsPlayback(url, name, channelId) {
+            console.log(`Trying HLS.js playback: ${url}`);
+            
+            hls = new Hls({
+                debug: false,
+                enableWorker: true,
+                lowLatencyMode: true,
+                backBufferLength: 90,
+                fragLoadingMaxRetry: 3,
+                manifestLoadingMaxRetry: 3,
+                loader: class ProxiedLoader extends Hls.DefaultConfig.loader {
+                    constructor(config) { super(config); }
+                    
+                    load(context, config, callbacks) {
+                        // Add common headers for better compatibility (excluding unsafe headers)
+                        if (!context.headers) context.headers = {};
+                        // Note: User-Agent and Referer cannot be set via JavaScript due to browser security
+                        // The browser will automatically set appropriate headers
+                          super.load(context, config, callbacks);
+                    }
+                }
+            });
+
+            hls.loadSource(url);
+            hls.attachMedia(videoPlayer);
+            
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                console.log('HLS manifest parsed successfully');
+                videoPlayer.play().then(() => {
+                    updateStatus('online', `Playing: ${name}`);
+                    channelNameDisplay.textContent = `Now Playing: ${name}`;
+                    applyQualitySettings();
+                }).catch(err => {
+                    console.error('HLS play promise rejected:', err);
+                    // Try native HLS or proxied URL
+                    tryNativeHlsPlayback(cleanUrl, name, channelId);
+                });
+            });
+
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                console.error('HLS Error:', data);
+                if (data.fatal) {
+                    switch(data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            console.log('HLS network error, trying proxied URL...');
+                            tryProxiedPlayback(url, name, channelId);
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                            console.log('HLS media error, trying to recover...');
+                            try {
+                                hls.recoverMediaError();
+                            } catch (recoverError) {
+                                console.log('Recovery failed, trying native HLS...');
+                                tryNativeHlsPlayback(url, name, channelId);
+                            }
+                            break;
+                        default:
+                            console.log('Fatal HLS error, trying native HLS...');
+                            tryNativeHlsPlayback(url, name, channelId);
+                            break;
+                    }
+                }
+            });
+        }
+
+        function tryNativeHlsPlayback(url, name, channelId) {
+            console.log(`Trying native HLS playback: ${url}`);
+            
+            videoPlayer.src = url;
+            videoPlayer.load();
+            
+            const playPromise = videoPlayer.play();
+            if (playPromise !== undefined) {
+                playPromise.then(() => {
+                    console.log('Native HLS playback successful');
+                    updateStatus('online', `Playing: ${name}`);
+                    channelNameDisplay.textContent = `Now Playing: ${name}`;
+                }).catch(err => {
+                    console.error('Native HLS playback failed:', err);
+                    // Try with different MIME types
+                    tryAlternativeFormats(url, name, channelId);
+                });
+            }
+        }
+
+        function tryAlternativeFormats(url, name, channelId) {
+            console.log(`Trying alternative formats for: ${url}`);
+            
+            // Create a temporary video element to test format support
+            const testVideo = document.createElement('video');
+            
+            // Test different MIME types
+            const formats = [
+                'video/mp4',
+                'application/vnd.apple.mpegurl',
+                'application/x-mpegURL',
+                'video/MP2T',
+                'application/octet-stream'
+            ];
+            
+            for (const format of formats) {
+                if (testVideo.canPlayType(format) !== '') {
+                    console.log(`Trying format: ${format}`);
+                    videoPlayer.src = url;
+                    videoPlayer.setAttribute('type', format);
+                    videoPlayer.load();
+                    
+                    const playPromise = videoPlayer.play();
+                    if (playPromise !== undefined) {
+                        playPromise.then(() => {
+                            console.log(`Format ${format} playback successful`);
+                            updateStatus('online', `Playing: ${name}`);
+                            channelNameDisplay.textContent = `Now Playing: ${name}`;
+                            return; // Success, exit function
+                        }).catch(err => {
+                            console.error(`Format ${format} failed:`, err);
+                        });
+                    }
+                }
+            }
+            
+            // If all formats failed, try proxied playback
+            setTimeout(() => tryProxiedPlayback(url, name, channelId), 2000);
+        }        function tryDirectPlayback(url, name, channelId) {
+            console.log(`Trying direct playback: ${url}`);
+            incrementDebugAttempts();
+            updateDebugInfo(url, 'Direct', 'Attempting direct playback');
+            
+            // Reset and prepare video element
+            videoPlayer.src = '';
+            videoPlayer.removeAttribute('type');
+            videoPlayer.load();
+            
+            // Set source with proper error handling
+            videoPlayer.src = url;
+            videoPlayer.load();
+            
+            // Add a one-time load event listener
+            const onLoadedData = () => {
+                console.log('Video loaded data successfully');
+                videoPlayer.removeEventListener('loadeddata', onLoadedData);
+                videoPlayer.removeEventListener('error', onError);
+                
+                const playPromise = videoPlayer.play();
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        console.log('Direct playback successful');
+                        updateStatus('online', `Playing: ${name}`);
+                        channelNameDisplay.textContent = `Now Playing: ${name}`;
+                        updateDebugInfo('', '', 'Playing successfully');
+                    }).catch(err => {
+                        console.error('Direct play promise rejected:', err);
+                        updateDebugInfo('', '', 'Play promise rejected', err.message);
+                        // Try format detection
+                        tryWithHeaders(url, name, channelId);
+                    });
+                }
+            };
+            
+            const onError = (e) => {
+                console.error('Direct playback error:', e);
+                videoPlayer.removeEventListener('loadeddata', onLoadedData);
+                videoPlayer.removeEventListener('error', onError);
+                
+                const errorMsg = e.target?.error ? `Media error code ${e.target.error.code}` : 'Load failed';
+                updateDebugInfo('', '', 'Direct failed', errorMsg);
+                // Try with custom headers via proxy
+                tryWithHeaders(url, name, channelId);
+            };
+            
+            videoPlayer.addEventListener('loadeddata', onLoadedData, { once: true });
+            videoPlayer.addEventListener('error', onError, { once: true });
+            
+            // Set a timeout for loading
+            setTimeout(() => {
+                if (videoPlayer.readyState === 0) {
+                    console.log('Direct playback timeout, trying alternatives...');
+                    videoPlayer.removeEventListener('loadeddata', onLoadedData);
+                    videoPlayer.removeEventListener('error', onError);
+                    updateDebugInfo('', '', 'Direct timeout', 'Load timeout after 10s');
+                    tryWithHeaders(url, name, channelId);
+                }
+            }, 10000); // 10 second timeout
+        }
+
+        function tryWithHeaders(url, name, channelId) {
+            console.log(`Trying playback with custom headers: ${url}`);            // For streams that might need specific headers, try a workaround
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = `data:text/html,
+                <html>
+                    <head>
+                        <meta name="referrer" content="no-referrer">
+                    </head>
+                    <body style="margin:0;padding:0;">
+                        <video controls autoplay style="width:100%;height:100vh;">
+                            <source src="${url}" type="application/vnd.apple.mpegurl">
+                            <source src="${url}" type="video/mp4">
+                            <source src="${url}" type="application/x-mpegURL">
+                            <source src="${url}">
+                            Your browser does not support this video format.
+                        </video>
+                    </body>
+                </html>`;
+            
+            document.body.appendChild(iframe);
+            
+            setTimeout(() => {
+                document.body.removeChild(iframe);
+                // If iframe approach doesn't work, try proxied
+                tryProxiedPlayback(url, name, channelId);
+            }, 3000);
+              // Meanwhile, also try proxied immediately
+            setTimeout(() => tryProxiedPlayback(url, name, channelId), 1000);
+        }
+        
+        function tryProxiedPlayback(url, name, channelId) {
+            console.log(`Trying proxied playback: ${url}`);
+            incrementDebugAttempts();
+            updateDebugInfo(url, 'Proxy', 'Attempting proxy playback');
+            
+            // Try each proxy in sequence
+            let proxyIndex = 0;
+            let attempts = 0;
+            const maxAttempts = PROXIES.length * 2; // Try each proxy twice
+            
+            const tryNextProxy = () => {
+                if (attempts >= maxAttempts) {
+                    const finalError = `All playback methods failed for "${name}". 
+                    
+Possible causes:
+• Stream is offline or temporarily unavailable
+• Stream format not supported by browser
+• Geographic restrictions (try VPN)
+• Server blocking requests
+
+Stream URL: ${url}`;
+                    showError(finalError);
+                    updateStatus('error', 'Playback failed');
+                    updateDebugInfo('', '', 'All methods failed', 'Exhausted all proxies and methods');
+                    return;
+                }
+
+                const proxy = PROXIES[proxyIndex % PROXIES.length];
+                let proxiedUrl;
+                
+                // Handle different proxy formats
+                if (proxy.includes('allorigins.win')) {
+                    proxiedUrl = `${proxy}${encodeURIComponent(url)}`;
+                } else if (proxy.includes('cors.eu.org')) {
+                    proxiedUrl = `${proxy}${url}`;
+                } else if (proxy.includes('codetabs.com')) {
+                    proxiedUrl = `${proxy}${encodeURIComponent(url)}`;
+                } else {
+                    proxiedUrl = `${proxy}${encodeURIComponent(url)}`;
+                }
+                
+                console.log(`Trying proxy ${proxyIndex + 1} (attempt ${attempts + 1}): ${proxy}`);
+                updateStatus('loading', `Trying proxy server ${proxyIndex + 1}/${PROXIES.length}...`);
+                updateDebugInfo(proxiedUrl, `Proxy ${proxyIndex + 1}`, `Attempt ${attempts + 1}/${maxAttempts}`);
+                
+                // Reset video element
+                videoPlayer.src = '';
+                videoPlayer.removeAttribute('type');
+                videoPlayer.load();
+                
+                // Set proxied source
+                videoPlayer.src = proxiedUrl;
+                videoPlayer.load();
+                
+                const onSuccess = () => {
+                    console.log(`Proxied playback successful with proxy ${proxyIndex + 1}`);
+                    updateStatus('online', `Playing: ${name} (via proxy)`);
+                    channelNameDisplay.textContent = `Now Playing: ${name}`;
+                    updateDebugInfo('', '', 'Playing via proxy successfully');
+                    cleanup();
+                };
+                
+                const onError = (error) => {
+                    console.error(`Proxy ${proxyIndex + 1} failed (attempt ${attempts + 1}):`, error);
+                    const errorMsg = typeof error === 'string' ? error : error?.message || 'Unknown error';
+                    updateDebugInfo('', '', `Proxy ${proxyIndex + 1} failed`, errorMsg);
+                    cleanup();
+                    
+                    attempts++;
+                    proxyIndex = Math.floor(attempts / 2); // Try each proxy twice
+                    
+                    if (attempts < maxAttempts) {
+                        setTimeout(tryNextProxy, 2000); // Wait 2 seconds between attempts
+                    } else {
+                        // Final fallback - try a basic blob URL approach
+                        tryBlobPlayback(url, name, channelId);
+                    }
+                };
+                
+                const cleanup = () => {
+                    videoPlayer.removeEventListener('loadeddata', onLoadedData);
+                    videoPlayer.removeEventListener('canplay', onCanPlay);
+                    videoPlayer.removeEventListener('error', onVideoError);
+                };
+                
+                const onLoadedData = () => {
+                    const playPromise = videoPlayer.play();
+                    if (playPromise !== undefined) {
+                        playPromise.then(onSuccess).catch(onError);
+                    }
+                };
+                
+                const onCanPlay = () => {
+                    const playPromise = videoPlayer.play();
+                    if (playPromise !== undefined) {
+                        playPromise.then(onSuccess).catch(onError);
+                    }
+                };
+                
+                const onVideoError = (e) => {
+                    console.error('Video element error:', e);
+                    onError(e);
+                };
+                
+                videoPlayer.addEventListener('loadeddata', onLoadedData, { once: true });
+                videoPlayer.addEventListener('canplay', onCanPlay, { once: true });
+                videoPlayer.addEventListener('error', onVideoError, { once: true });
+                
+                // Timeout for this attempt
+                setTimeout(() => {
+                    if (videoPlayer.readyState === 0) {
+                        console.log(`Proxy ${proxyIndex + 1} timeout`);
+                        onError(new Error('Timeout'));
+                    }
+                }, 15000); // 15 second timeout per proxy
+            };
+            
+            tryNextProxy();
+        }
+
+        function tryBlobPlayback(url, name, channelId) {
+            console.log(`Trying blob playback as final fallback: ${url}`);
+            updateStatus('loading', 'Trying final fallback method...');            // This is a last-resort attempt using fetch and blob
+            fetch(url, {
+                mode: 'cors',
+                credentials: 'omit'
+            }).then(response => {
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return response.blob();
+            }).then(blob => {
+                const blobUrl = URL.createObjectURL(blob);
+                videoPlayer.src = blobUrl;
+                
+                const playPromise = videoPlayer.play();
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        console.log('Blob playback successful');
+                        updateStatus('online', `Playing: ${name} (cached)`);
+                        channelNameDisplay.textContent = `Now Playing: ${name}`;
+                        
+                        // Clean up blob URL when done
+                        videoPlayer.addEventListener('ended', () => URL.revokeObjectURL(blobUrl), { once: true });
+                    }).catch(err => {
+                        console.error('Blob playback failed:', err);
+                        URL.revokeObjectURL(blobUrl);
+                        showError(`Unable to play "${name}". This stream may require special browser extensions or is not compatible with web players.
+                        
+Stream URL: ${url}
+                        
+Try:
+• Refreshing the page
+• Using a different browser
+• Installing browser extensions for streaming
+• Checking if the stream works in a media player like VLC`);
+                        updateStatus('error', 'All methods failed');
+                    });
+                }            }).catch(err => {
+                console.error('Blob fetch failed:', err);
+                
+                // Provide specific guidance for different stream types
+                let errorMessage = `Unable to play "${name}". All playback methods exhausted.`;
+                
+                if (url.includes('.ts')) {
+                    errorMessage += `
+
+🔍 XTREME CODES / .TS STREAM DETECTED
+This appears to be an Xtreme Codes stream. Common issues:
+
+• Server may be down or overloaded
+• Credentials may be expired or invalid
+• Stream may require direct IPTV player (VLC, Kodi, etc.)
+• Geographic restrictions may apply
+• .ts segments may need to be accessed via M3U8 playlist
+
+💡 TROUBLESHOOTING:
+• Verify your Xtreme Codes credentials are current
+• Try playing the stream in VLC or another IPTV player
+• Check if the provider offers M3U8 URLs instead of .ts
+• Contact your IPTV provider for assistance`;
+                } else {
+                    errorMessage += `
+
+This could be due to:
+• Stream is offline or geographically restricted
+• Requires authentication or special headers
+• Stream format not supported by web browsers
+• Network connectivity issues`;
+                }
+                
+                errorMessage += `
+
+Stream URL: ${url}`;
+                
+                showError(errorMessage);
+                updateStatus('error', 'Stream incompatible');
+            });
+        }// --- PARSING FUNCTIONS ---
+        function parseM3U(data, baseUrl) {
+            const base = new URL(baseUrl);
+            const channels = [];
+            const lines = data.split('\n');
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (line.startsWith('#EXTINF:')) {
+                    const info = line.substring(8).trim();
+                    const name = info.match(/,(.+)$/)?.[1]?.trim() || 'Unknown Channel';
+                    const id = info.match(/tvg-id="([^"]+)"/)?.[1]?.trim() || name;
+                    let logo = info.match(/tvg-logo="([^"]+)"/)?.[1];
+                    const group = info.match(/group-title="([^"]+)"/)?.[1]?.trim() || 'Uncategorized';
+                    
+                    // Get the next non-comment line as the URL
+                    let url = null;
+                    for (let j = i + 1; j < lines.length; j++) {
+                        const nextLine = lines[j].trim();
+                        if (nextLine && !nextLine.startsWith('#')) {
+                            url = nextLine;
+                            break;
+                        }
+                    }
+                    
+                    if (url) {
+                        // Clean and validate URL
+                        url = url.trim();
+                        
+                        // Resolve relative URLs for logos and streams
+                        if (logo && !logo.startsWith('http')) { 
+                            try {
+                                logo = new URL(logo, base).href; 
+                            } catch (e) {
+                                console.warn('Invalid logo URL:', logo);
+                                logo = null;
+                            }
+                        }
+                        
+                        if (!url.startsWith('http')) { 
+                            try {
+                                url = new URL(url, base).href; 
+                            } catch (e) {
+                                console.warn('Invalid stream URL:', url);
+                                continue; // Skip this channel if URL is invalid
+                            }
+                        }
+                        
+                        // Validate URL format
+                        try {
+                            new URL(url);
+                            channels.push({ 
+                                id: id.replace(/[^a-zA-Z0-9-_]/g, '_'), // Sanitize ID
+                                name: name, 
+                                logo: logo, 
+                                group: group, 
+                                url: url 
+                            });
+                        } catch (e) {
+                            console.warn('Skipping channel with invalid URL:', name, url);
+                        }
+                    }
+                }
+            }
+            
+            console.log(`Parsed ${channels.length} valid channels from M3U`);
+            return channels;
+        }
+
+        function parseEPG(xmlString) {
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlString, "text/xml");
+            const programmes = xmlDoc.getElementsByTagName('programme');
+            const epg = {};
+            for (let prog of programmes) {
+                const channelId = prog.getAttribute('channel');
+                if (!channelId) continue;
+                try {
+                    const start = new Date(prog.getAttribute('start').replace(/(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\s(\S+)/, '$1-$2-$3T$4:$5:$6Z'));
+                    const stop = new Date(prog.getAttribute('stop').replace(/(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\s(\S+)/, '$1-$2-$3T$4:$5:$6Z'));
+                    const title = prog.getElementsByTagName('title')[0]?.textContent || 'No Title';
+                    if (!epg[channelId]) epg[channelId] = [];
+                    epg[channelId].push({ start, stop, title });
+                } catch(e) {
+                    console.warn("Could not parse EPG date for channel:", channelId, e);
+                }
+            }
+            for (const channelId in epg) epg[channelId].sort((a, b) => a.start - b.start);
+            return epg;
+        }        // --- UI & HELPER FUNCTIONS ---
+        function resetContent() { 
+            appState.allChannels = []; 
+            appState.epgData = {}; 
+            channelList.innerHTML = ''; 
+            currentChannelIndex = -1;
+            displayedChannels = [];
+        }
+        
+        function populateGroupFilter() {
+            const groups = [...new Set(appState.allChannels.map(c => c.group))].sort();
+            groupFilter.innerHTML = '<option value="all">All Groups</option>';
+            if(appState.favorites.length > 0) groupFilter.innerHTML += '<option value="favorites">★ Favorites</option>';
+            if(appState.recents.length > 0) groupFilter.innerHTML += '<option value="recents">🕓 Recently Watched</option>';
+            groups.forEach(group => groupFilter.innerHTML += `<option value="${group}">${group}</option>`);
+        }
+        
+        function getEpgForChannel(channelId) {
+            const channelPrograms = appState.epgData[channelId];
+            if (!channelPrograms) return { now: null, next: null };
+            const now = new Date();
+            const currentProgIndex = channelPrograms.findIndex(p => p.start <= now && p.stop > now);
+            const currentProg = channelPrograms[currentProgIndex];
+            const nextProg = channelPrograms[currentProgIndex + 1];
+            return { now: currentProg?.title, next: nextProg?.title };
+        }
+        
+        function toggleFavorite(channelId) {
+            const favIndex = appState.favorites.indexOf(channelId);
+            favIndex > -1 ? appState.favorites.splice(favIndex, 1) : appState.favorites.push(channelId);
+            saveStateToStorage();
+            filterAndDisplayChannels();
+            populateGroupFilter();
+        }
+        
+        function addRecent(channelId) {
+            appState.recents = [channelId, ...appState.recents.filter(id => id !== channelId)].slice(0, 10);
+            saveStateToStorage();
+            populateGroupFilter();
+        }
+        
+        function showError(message) { 
+            errorText.textContent = message; 
+            errorMessage.classList.remove('hidden'); 
+            setTimeout(() => hideError(), 5000);
+        }
+        
+        function hideError() { errorMessage.classList.add('hidden'); }
+        function hideSuccess() { successMessage.classList.add('hidden'); }
+        
+        function showSuccess(message) { 
+            successText.textContent = message; 
+            successMessage.classList.remove('hidden'); 
+            setTimeout(() => hideSuccess(), 3000);
+        }
+        
+        function updateLoadingScreen(title, progress = '', details = '', stats = '', showProgressBar = false, progressPercent = 0) {
+            loadingTitle.textContent = title;
+            loadingProgress.textContent = progress;
+            loadingDetails.textContent = details;
+            loadingStats.textContent = stats;
+            
+            if (showProgressBar) {
+                progressBarContainer.classList.remove('hidden');
+                progressBar.style.width = `${progressPercent}%`;
+            } else {
+                progressBarContainer.classList.add('hidden');
+            }
+        }
+        
+        function showLoadingScreen() {
+            loaderOverlay.classList.remove('hidden');
+            updateLoadingScreen(
+                'Initializing...',
+                '',
+                'Preparing to load your playlist',
+                ''
+            );
+        }
+        
+        function hideLoadingScreen() {
+            loaderOverlay.classList.add('hidden');
+            progressBarContainer.classList.add('hidden');
+        }
+          function updateStatus(type, message) {
+            statusIndicator.className = `status-indicator status-${type}`;
+            statusIndicator.style.display = 'inline-block';
+            channelNameDisplay.textContent = message;
+        }
+        
+        // Debug panel functions
+        let debugState = {
+            currentUrl: '',
+            currentMethod: '',
+            currentStatus: '',
+            attemptCount: 0,
+            lastError: '',
+            supportInfo: ''
+        };
+          function updateDebugInfo(url = '', method = '', status = '', error = '') {
+            if (url) debugState.currentUrl = url;
+            if (method) debugState.currentMethod = method;
+            if (status) debugState.currentStatus = status;
+            if (error) debugState.lastError = error;
+            
+            // Update support info
+            const video = document.createElement('video');
+            const support = [];
+            if (Hls.isSupported()) support.push('HLS.js');
+            if (video.canPlayType('application/vnd.apple.mpegurl')) support.push('Native HLS');
+            if (video.canPlayType('video/mp4')) support.push('MP4');
+            if (video.canPlayType('video/webm')) support.push('WebM');
+            debugState.supportInfo = support.join(', ') || 'Limited';
+            
+            // Add special notes for .ts URLs
+            let statusDisplay = debugState.currentStatus || '-';
+            if (debugState.currentUrl && debugState.currentUrl.includes('.ts')) {
+                statusDisplay += ' (⚠️ .ts stream - may need M3U8)';
+            }
+            
+            // Update UI
+            debugUrl.textContent = debugState.currentUrl || '-';
+            debugMethod.textContent = debugState.currentMethod || '-';
+            debugStatus.textContent = statusDisplay;
+            debugSupport.textContent = debugState.supportInfo;
+            debugAttempts.textContent = debugState.attemptCount.toString();
+            debugError.textContent = debugState.lastError || '-';
+        }
+        
+        function incrementDebugAttempts() {
+            debugState.attemptCount++;
+            updateDebugInfo();
+        }
+        
+        function resetDebugState() {
+            debugState = {
+                currentUrl: '',
+                currentMethod: '',
+                currentStatus: '',
+                attemptCount: 0,
+                lastError: '',
+                supportInfo: ''
+            };
+            updateDebugInfo();
+        }
+        
+        function applyQualitySettings() {
+            if (!hls) return;
+            const quality = qualitySelect.value;
+            switch(quality) {
+                case 'high':
+                    hls.currentLevel = hls.levels.length - 1;
+                    break;
+                case 'medium':
+                    hls.currentLevel = Math.floor(hls.levels.length / 2);
+                    break;
+                case 'low':
+                    hls.currentLevel = 0;
+                    break;
+                default:
+                    hls.currentLevel = -1; // auto
+            }
+        }
+        
+        function setupKeyboardShortcuts() {
+            document.addEventListener('keydown', (e) => {
+                // Don't trigger shortcuts when typing in inputs
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                    if (e.ctrlKey && e.key === 'f') {
+                        e.preventDefault();
+                        searchInput.focus();
+                    }
+                    return;
+                }
+                
+                switch(e.key) {
+                    case ' ':
+                        e.preventDefault();
+                        videoPlayer.paused ? videoPlayer.play() : videoPlayer.pause();
+                        break;
+                    case 'f':
+                    case 'F':
+                        e.preventDefault();
+                        toggleFullscreen();
+                        break;
+                    case 'p':
+                    case 'P':
+                        e.preventDefault();
+                        togglePictureInPicture();
+                        break;
+                    case 'ArrowUp':
+                        e.preventDefault();
+                        if (currentChannelIndex > 0) {
+                            switchToChannel(currentChannelIndex - 1);
+                        }
+                        break;
+                    case 'ArrowDown':
+                        e.preventDefault();
+                        if (currentChannelIndex < displayedChannels.length - 1) {
+                            switchToChannel(currentChannelIndex + 1);
+                        }
+                        break;
+                    case 'ArrowLeft':
+                        e.preventDefault();
+                        videoPlayer.currentTime -= 10;
+                        break;
+                    case 'ArrowRight':
+                        e.preventDefault();
+                        videoPlayer.currentTime += 10;
+                        break;
+                }
+                
+                if (e.ctrlKey && e.key === 'f') {
+                    e.preventDefault();
+                    searchInput.focus();
+                }
+            });
+        }
+        
+        function setupMediaSession() {
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.setActionHandler('play', () => videoPlayer.play());
+                navigator.mediaSession.setActionHandler('pause', () => videoPlayer.pause());
+                navigator.mediaSession.setActionHandler('previoustrack', () => {
+                    if (currentChannelIndex > 0) switchToChannel(currentChannelIndex - 1);
+                });
+                navigator.mediaSession.setActionHandler('nexttrack', () => {
+                    if (currentChannelIndex < displayedChannels.length - 1) switchToChannel(currentChannelIndex + 1);
+                });
+            }
+        }
+        
+        function updateMediaSession(title) {
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: title,
+                    artist: 'IPTV Stream',
+                    album: 'Live Television'
+                });
+            }
+        }
+        
+        function switchToChannel(index) {
+            if (index >= 0 && index < displayedChannels.length) {
+                const channel = displayedChannels[index];
+                currentChannelIndex = index;
+                playChannel(channel.url, channel.name, channel.id);
+                
+                // Update UI
+                document.querySelectorAll('.channel-item').forEach(item => item.classList.remove('active'));
+                const channelCards = document.querySelectorAll('.channel-item');
+                if (channelCards[index]) {
+                    channelCards[index].classList.add('active');
+                    channelCards[index].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            }
+        }
+        
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                videoPlayer.requestFullscreen().catch(err => {
+                    console.error('Error entering fullscreen:', err);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+        
+        function togglePictureInPicture() {
+            if (document.pictureInPictureElement) {
+                document.exitPictureInPicture();
+            } else {
+                videoPlayer.requestPictureInPicture().catch(err => {
+                    console.error('Error entering PiP:', err);
+                    showError('Picture-in-Picture not supported');
+                });
+            }
+        }
+
+        // --- PLAYLIST MANAGEMENT ---
+        function renderPlaylistSelect() {
+            playlistSelect.innerHTML = appState.playlists.length === 0 
+                ? '<option value="">Add a playlist to begin</option>'
+                : appState.playlists.map(p => `<option value="${p.url}">${p.name}</option>`).join('');
+            playlistSelect.value = appState.activePlaylistUrl;
+        }        function renderPlaylistManagerList() {
+            playlistManagerList.innerHTML = appState.playlists.map((p, index) => {
+                const typeLabel = p.type === 'xtreme' ? 
+                    '<span class="text-xs bg-purple-600 px-2 py-1 rounded ml-2">Xtreme</span>' : 
+                    '<span class="text-xs bg-blue-600 px-2 py-1 rounded ml-2">M3U</span>';
+                
+                return `<div class="flex justify-between items-center bg-gray-700 p-2 rounded">
+                    <div class="flex items-center">
+                        <span>${p.name}</span>
+                        ${typeLabel}
+                    </div>
+                    <button data-index="${index}" class="remove-playlist-btn bg-red-600 px-2 py-1 rounded text-xs">Remove</button>
+                </div>`;
+            }).join('');
+        }
+
+        // Generate M3U URL from Xtreme Codes credentials
+        function generateXtremeM3uUrl(portalUrl, username, password) {
+            // Remove trailing slash from portal URL
+            const baseUrl = portalUrl.replace(/\/$/, '');
+            
+            // Xtreme Codes M3U URL format
+            return `${baseUrl}/get.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&type=m3u_plus&output=ts`;
+        }
+        
+        // Toggle between M3U and Xtreme Codes modes
+        function togglePlaylistMode(mode) {
+            if (mode === 'xtreme') {
+                m3uModeBtn.classList.remove('bg-blue-600');
+                m3uModeBtn.classList.add('bg-gray-600');
+                xtremeModeBtn.classList.remove('bg-gray-600');
+                xtremeModeBtn.classList.add('bg-blue-600');
+                m3uFields.classList.add('hidden');
+                xtremeFields.classList.remove('hidden');
+            } else {
+                xtremeModeBtn.classList.remove('bg-blue-600');
+                xtremeModeBtn.classList.add('bg-gray-600');
+                m3uModeBtn.classList.remove('bg-gray-600');
+                m3uModeBtn.classList.add('bg-blue-600');
+                xtremeFields.classList.add('hidden');
+                m3uFields.classList.remove('hidden');
+            }
+        }
+        
+        // --- LOCAL STORAGE ---
+        function saveStateToStorage() {
+            try {
+                localStorage.setItem('m3uStreamerState', JSON.stringify({
+                    playlists: appState.playlists, activePlaylistUrl: appState.activePlaylistUrl,
+                    favorites: appState.favorites, recents: appState.recents, volume: appState.volume,
+                    currentQuality: appState.currentQuality
+                }));
+            } catch (e) { console.error("Could not save state to localStorage", e); }
+        }
+          function loadStateFromStorage() {
+            try {
+                const savedState = JSON.parse(localStorage.getItem('m3uStreamerState') || '{}');
+                appState.playlists = savedState.playlists || [];
+                
+                // Ensure backward compatibility - add type field to existing playlists
+                appState.playlists = appState.playlists.map(playlist => ({
+                    ...playlist,
+                    type: playlist.type || 'm3u' // Default to m3u for existing playlists
+                }));
+                
+                appState.activePlaylistUrl = savedState.activePlaylistUrl || '';
+                appState.favorites = savedState.favorites || [];
+                appState.recents = savedState.recents || [];
+                appState.volume = savedState.volume || 0.8;
+                appState.currentQuality = savedState.currentQuality || 'auto';
+            } catch (e) { console.error("Could not load state from localStorage", e); }
+        }
+        
+        // --- EVENT LISTENERS ---
+        loadBtn.addEventListener('click', loadPlaylist);
+        searchInput.addEventListener('input', filterAndDisplayChannels);
+        groupFilter.addEventListener('change', filterAndDisplayChannels);
+        qualitySelect.addEventListener('change', () => {
+            appState.currentQuality = qualitySelect.value;
+            saveStateToStorage();
+            applyQualitySettings();
+        });
+        
+        videoPlayer.addEventListener('volumechange', () => { 
+            appState.volume = videoPlayer.volume; 
+            saveStateToStorage();        });
+        
+        pipBtn.addEventListener('click', togglePictureInPicture);
+        fullscreenBtn.addEventListener('click', toggleFullscreen);
+        
+        // Debug panel event listeners
+        debugToggleBtn.addEventListener('click', () => {
+            debugPanel.classList.toggle('hidden');
+            updateDebugInfo();
+        });
+        
+        closeDebugBtn.addEventListener('click', () => {
+            debugPanel.classList.add('hidden');
+        });
+        
+        debugCopyBtn.addEventListener('click', () => {
+            const debugInfo = {
+                url: debugUrl.textContent,
+                method: debugMethod.textContent,
+                status: debugStatus.textContent,
+                support: debugSupport.textContent,
+                attempts: debugAttempts.textContent,
+                error: debugError.textContent,
+                userAgent: navigator.userAgent,
+                timestamp: new Date().toISOString()
+            };
+            
+            navigator.clipboard.writeText(JSON.stringify(debugInfo, null, 2)).then(() => {
+                debugCopyBtn.textContent = 'Copied!';
+                setTimeout(() => {
+                    debugCopyBtn.textContent = 'Copy Info';
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy debug info:', err);
+            });
+        });
+        
+        debugTestBtn.addEventListener('click', () => {
+            const url = debugUrl.textContent;
+            if (url && url !== '-') {
+                // Open stream URL in new tab for testing
+                const testWindow = window.open('', '_blank');
+                testWindow.document.write(`
+                    <html>
+                        <head><title>Stream Test</title></head>
+                        <body style="margin:0;background:#000;">
+                            <video controls autoplay style="width:100%;height:100vh;">
+                                <source src="${url}" type="application/vnd.apple.mpegurl">
+                                <source src="${url}" type="video/mp4">
+                                <source src="${url}">
+                                Your browser does not support this video format.
+                            </video>
+                        </body>
+                    </html>
+                `);
+            }
+        });
+          closeErrorBtn.addEventListener('click', hideError);
+        closeSuccessBtn.addEventListener('click', hideSuccess);
+        
+        // Debug: Check if elements exist
+        console.log('managePlaylistsBtn:', managePlaylistsBtn);
+        console.log('playlistModal:', playlistModal);
+        console.log('closeModalBtn:', closeModalBtn);
+        
+        if (managePlaylistsBtn) {
+            managePlaylistsBtn.addEventListener('click', () => {
+                console.log('Manage playlists button clicked');
+                playlistModal.classList.remove('hidden');
+            });
+        } else {
+            console.error('managePlaylistsBtn not found!');
+        }
+        
+        if (closeModalBtn) {
+            closeModalBtn.addEventListener('click', () => {
+                console.log('Close modal button clicked');
+                playlistModal.classList.add('hidden');
+            });
+        } else {
+            console.error('closeModalBtn not found!');
+        }
+          addPlaylistBtn.addEventListener('click', () => {
+            // Check if we're in Xtreme Codes mode
+            const isXtremeMode = !xtremeFields.classList.contains('hidden');
+            
+            if (isXtremeMode) {
+                // Handle Xtreme Codes input
+                const name = xtremePlaylistNameInput.value.trim();
+                const portalUrl = xtremePortalUrlInput.value.trim();
+                const username = xtremeUsernameInput.value.trim();
+                const password = xtremePasswordInput.value.trim();
+                
+                if (name && portalUrl && username && password) {
+                    // Generate M3U URL from Xtreme Codes credentials
+                    const m3uUrl = generateXtremeM3uUrl(portalUrl, username, password);
+                    
+                    appState.playlists.push({ 
+                        name, 
+                        url: m3uUrl, 
+                        epgUrl: '',
+                        type: 'xtreme',
+                        credentials: { portalUrl, username, password }
+                    });
+                    
+                    // Clear form
+                    xtremePlaylistNameInput.value = '';
+                    xtremePortalUrlInput.value = '';
+                    xtremeUsernameInput.value = '';
+                    xtremePasswordInput.value = '';
+                    
+                    saveStateToStorage(); 
+                    renderPlaylistSelect(); 
+                    renderPlaylistManagerList();
+                    showSuccess(`Xtreme Codes playlist "${name}" added successfully`);
+                } else {
+                    showError('Please fill in all Xtreme Codes fields');
+                }
+            } else {
+                // Handle regular M3U input
+                const name = newPlaylistNameInput.value.trim();
+                const url = newPlaylistUrlInput.value.trim();
+                if (name && url) {
+                    appState.playlists.push({ name, url, epgUrl: '', type: 'm3u' });
+                    newPlaylistNameInput.value = ''; 
+                    newPlaylistUrlInput.value = '';
+                    saveStateToStorage(); 
+                    renderPlaylistSelect(); 
+                    renderPlaylistManagerList();
+                    showSuccess(`M3U playlist "${name}" added successfully`);
+                } else {
+                    showError('Please enter both playlist name and URL');
+                }
+            }
+        });
+        
+        // Mode toggle event listeners
+        m3uModeBtn.addEventListener('click', () => togglePlaylistMode('m3u'));
+        xtremeModeBtn.addEventListener('click', () => togglePlaylistMode('xtreme'));
+        
+        playlistManagerList.addEventListener('click', (e) => {
+            if (e.target.classList.contains('remove-playlist-btn')) {
+                const playlistName = appState.playlists[e.target.dataset.index]?.name;
+                appState.playlists.splice(e.target.dataset.index, 1);
+                saveStateToStorage(); 
+                renderPlaylistSelect(); 
+                renderPlaylistManagerList();
+                showSuccess(`Playlist "${playlistName}" removed`);
+            }
+        });
+        
+        playlistSelect.addEventListener('change', (e) => {
+            const playlist = appState.playlists.find(p => p.url === e.target.value);
+            epgUrlInput.value = playlist?.epgUrl || '';
+        });
+
+        // Close modal when clicking outside
+        playlistModal.addEventListener('click', (e) => {
+            if (e.target === playlistModal) {
+                playlistModal.classList.add('hidden');
+            }
+        });
+
+        // --- INITIALIZATION ---
+        init();
+    });
+</script>
+</body>
+</html>
