@@ -440,6 +440,7 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
                 
                 let errorMessage = 'Unknown playback error';
                 let technicalDetails = '';
+                let shouldAttemptRecovery = false;
                 
                 if (error) {
                     switch(error.code) {
@@ -450,29 +451,56 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
                         case MediaError.MEDIA_ERR_NETWORK:
                             errorMessage = 'Network error occurred while loading video';
                             technicalDetails = 'Check your internet connection and stream URL';
+                            shouldAttemptRecovery = true;
                             break;
                         case MediaError.MEDIA_ERR_DECODE:
-                            errorMessage = 'Video format not supported or corrupted';
-                            technicalDetails = 'The video codec may not be supported by your browser';
+                            errorMessage = 'Video format error detected';
+                            technicalDetails = 'Media decode error - attempting recovery';
+                            shouldAttemptRecovery = true;
+                            
+                            // Attempt HLS.js media recovery if available
+                            if (window.hls && typeof window.hls.recoverMediaError === 'function') {
+                                console.log('Attempting HLS.js media error recovery...');
+                                try {
+                                    window.hls.recoverMediaError();
+                                    showError('Attempting to recover from playback error...');
+                                    return; // Don't show final error yet, let recovery attempt complete
+                                } catch (recoveryError) {
+                                    console.error('HLS.js recovery failed:', recoveryError);
+                                }
+                            }
                             break;
                         case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
                             errorMessage = 'Video source not supported';
                             technicalDetails = 'The video format or URL is not valid';
+                            shouldAttemptRecovery = true;
                             break;
                         default:
                             errorMessage = `Media error (code: ${error.code})`;
                             technicalDetails = error.message || 'Unknown media error';
+                            shouldAttemptRecovery = error.code !== MediaError.MEDIA_ERR_ABORTED;
                     }
                 }
+                
+                // Log technical details for debugging
+                console.log(`Technical details: ${technicalDetails}`);
+                debugState.lastError = `${errorMessage} (${technicalDetails})`;
+                updateDebugInfo();
                 
                 // Show user-friendly error message
                 showError(errorMessage);
                 updateStatus('error', 'Playback error');
-                console.log(`Technical details: ${technicalDetails}`);
                 
-                // Try HLS.js fallback for format errors
-                if (error && error.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
-                    console.log('Attempting HLS.js fallback for unsupported format');
+                // Attempt recovery for recoverable errors
+                if (shouldAttemptRecovery && currentChannelIndex >= 0) {
+                    console.log('Attempting automatic error recovery...');
+                    setTimeout(() => {
+                        if (currentChannelIndex >= 0 && currentChannelIndex < displayedChannels.length) {
+                            const channel = displayedChannels[currentChannelIndex];
+                            console.log(`Retrying playback for channel: ${channel.name}`);
+                            playChannel(channel.url, channel.name, channel.id);
+                        }
+                    }, 2000); // Wait 2 seconds before retry
                 }
             });
 
@@ -966,8 +994,7 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
 
                 hls.loadSource(url);
                 hls.attachMedia(videoPlayer);
-                
-                hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                  hls.on(Hls.Events.MANIFEST_PARSED, () => {
                     console.log('HLS manifest parsed successfully');
                     videoPlayer.play().then(() => {
                         if (!resolved) {
@@ -977,6 +1004,7 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
                             channelNameDisplay.textContent = `Now Playing: ${name}`;
                             updateDebugInfo(url, 'HLS.js', 'Success');
                             applyQualitySettings();
+                            hideError(); // Hide any previous errors on successful playback
                             resolve(true);
                         }
                     }).catch(err => {
@@ -988,19 +1016,92 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
                             resolve(false);
                         }
                     });
+                });                hls.on(Hls.Events.ERROR, (event, data) => {
+                    console.error('HLS Error:', event, data);
+                    
+                    if (data.fatal) {
+                        console.error('Fatal HLS error detected:', data.type, data.details);
+                        
+                        switch(data.type) {
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                console.log('Fatal media error encountered, attempting recovery...');
+                                showError('Media playback error - attempting recovery...');
+                                
+                                // Store the HLS instance globally for potential media recovery
+                                window.hls = hls;
+                                
+                                try {
+                                    hls.recoverMediaError();
+                                    console.log('Media error recovery initiated');
+                                    // Don't resolve immediately, wait for recovery result
+                                    return;
+                                } catch (recoveryError) {
+                                    console.error('Media error recovery failed:', recoveryError);
+                                    // Fall through to cleanup and reject
+                                }
+                                break;
+                                
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                console.error('Fatal network error encountered:', data);
+                                showError(`Network error: ${data.details || 'Connection failed'}`);
+                                
+                                // For network errors, we could retry with different config
+                                // or attempt proxy fallback, but for now just fail
+                                updateDebugInfo(url, 'HLS.js', `Network Error: ${data.details}`);
+                                break;
+                                
+                            default:
+                                console.error('Unrecoverable HLS error:', data);
+                                showError(`Playback error: ${data.details || 'Unknown error'}`);
+                                updateDebugInfo(url, 'HLS.js', `Fatal Error: ${data.type}`);
+                                break;
+                        }
+                        
+                        // Clean up and reject if recovery not attempted or failed
+                        if (!resolved) {
+                            resolved = true;
+                            clearTimeout(timeoutId);
+                            
+                            try {
+                                hls.destroy();
+                            } catch (destroyError) {
+                                console.warn('Error destroying HLS instance:', destroyError);
+                            }
+                            
+                            resolve(false);
+                        }
+                    } else {
+                        // Non-fatal errors - log but continue
+                        console.warn('Non-fatal HLS error:', data.type, data.details);
+                        
+                        // Handle specific non-fatal errors
+                        switch(data.details) {
+                            case Hls.ErrorDetails.FRAG_LOAD_ERROR:
+                                console.log('Fragment load error - HLS.js will retry automatically');
+                                break;
+                            case Hls.ErrorDetails.BUFFER_STALLED_ERROR:
+                                console.log('Buffer stalled - attempting to nudge playback');
+                                break;
+                            default:
+                                console.log('Other non-fatal error:', data.details);                        }
+                    }
                 });
-
-                hls.on(Hls.Events.ERROR, (event, data) => {
-                    console.error('HLS Error:', data);
-                    if (data.fatal && !resolved) {
-                        resolved = true;
-                        clearTimeout(timeoutId);
-                        if (hls) hls.destroy();
-                        updateDebugInfo(url, 'HLS.js', 'Failed', data.type);                        resolve(false);
+                
+                // Add event listener for successful media recovery
+                hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+                    console.log('HLS media reattached after recovery');
+                });
+                
+                hls.on(Hls.Events.FRAG_LOADED, () => {
+                    // If we had a previous media error and now fragments are loading, recovery likely succeeded
+                    if (window.hls === hls && !resolved) {
+                        console.log('Fragment loaded after recovery - playback likely restored');
+                        hideError();
+                        updateStatus('online', `Playing: ${name}`);
                     }
                 });
             });
-        }        function tryNativeHlsPlayback(url, name, channelId) {
+        }function tryNativeHlsPlayback(url, name, channelId) {
             return new Promise((resolve, reject) => {
                 console.log(`Trying native HLS playback: ${url}`);
                 incrementDebugAttempts();
@@ -1190,125 +1291,263 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
               // Meanwhile, also try proxied immediately
             setTimeout(() => tryProxiedPlayback(url, name, channelId), 1000);
         }
-        
-        function tryProxiedPlayback(url, name, channelId) {
-            console.log(`Trying proxied playback: ${url}`);
-            incrementDebugAttempts();
-            updateDebugInfo(url, 'Proxy', 'Attempting proxy playback');
-            
-            // Try each proxy in sequence
-            let proxyIndex = 0;
-            let attempts = 0;
-            const maxAttempts = PROXIES.length * 2; // Try each proxy twice
-            
-            const tryNextProxy = () => {
-                if (attempts >= maxAttempts) {
-                    const finalError = `All playback methods failed for "${name}". 
+          function tryProxiedPlayback(url, name, channelId) {
+            return new Promise((resolve) => {
+                console.log(`Trying proxied playback: ${url}`);
+                incrementDebugAttempts();
+                updateDebugInfo(url, 'Proxy', 'Attempting proxy playback');
+                
+                // Try each proxy in sequence
+                let proxyIndex = 0;
+                let attempts = 0;
+                const maxAttempts = PROXIES.length * 2; // Try each proxy twice
+                let resolved = false;
+                
+                const tryNextProxy = () => {
+                    if (resolved) return;
                     
+                    if (attempts >= maxAttempts) {
+                        const finalError = `All playback methods failed for "${name}". 
+                        
 Possible causes:
 • Stream is offline or temporarily unavailable
-• Stream format not supported by browser
+• Stream format not supported by browser  
 • Geographic restrictions (try VPN)
 • Server blocking requests
 
 Stream URL: ${url}`;
-                    showError(finalError);
-                    updateStatus('error', 'Playback failed');
-                    updateDebugInfo('', '', 'All methods failed', 'Exhausted all proxies and methods');
+                        showError(finalError);
+                        updateStatus('error', 'Playback failed');
+                        updateDebugInfo('', '', 'All methods failed', 'Exhausted all proxies and methods');
+                        
+                        if (!resolved) {
+                            resolved = true;
+                            resolve(false);
+                        }
+                        return;
+                    }
+
+                    const proxy = PROXIES[proxyIndex % PROXIES.length];
+                    let proxiedUrl;
+                    
+                    // Handle different proxy formats
+                    if (proxy.includes('allorigins.win')) {
+                        proxiedUrl = `${proxy}${encodeURIComponent(url)}`;
+                    } else if (proxy.includes('cors.eu.org')) {
+                        proxiedUrl = `${proxy}${url}`;
+                    } else if (proxy.includes('codetabs.com')) {
+                        proxiedUrl = `${proxy}${encodeURIComponent(url)}`;
+                    } else {
+                        proxiedUrl = `${proxy}${encodeURIComponent(url)}`;
+                    }
+                    
+                    console.log(`Trying proxy ${proxyIndex + 1} (attempt ${attempts + 1}): ${proxy}`);
+                    updateStatus('loading', `Trying proxy server ${proxyIndex + 1}/${PROXIES.length}...`);
+                    updateDebugInfo(proxiedUrl, `Proxy ${proxyIndex + 1}`, `Attempt ${attempts + 1}/${maxAttempts}`);
+                    
+                    // For HLS streams, try HLS.js with proxy first
+                    if (url.includes('.m3u8') || url.includes('playlist')) {
+                        tryProxiedHlsPlayback(proxiedUrl, name, channelId)
+                            .then(success => {
+                                if (success && !resolved) {
+                                    resolved = true;
+                                    resolve(true);
+                                } else if (!resolved) {
+                                    // Fall back to direct video element approach
+                                    tryProxiedDirectPlayback(proxiedUrl, name, channelId, onProxyResult);
+                                }
+                            })
+                            .catch(() => {
+                                if (!resolved) {
+                                    // Fall back to direct video element approach
+                                    tryProxiedDirectPlayback(proxiedUrl, name, channelId, onProxyResult);
+                                }
+                            });
+                    } else {
+                        // For non-HLS streams, try direct playback through proxy
+                        tryProxiedDirectPlayback(proxiedUrl, name, channelId, onProxyResult);
+                    }
+                    
+                    function onProxyResult(success, error) {
+                        if (resolved) return;
+                        
+                        if (success) {
+                            console.log(`Proxied playback successful with proxy ${proxyIndex + 1}`);
+                            updateStatus('online', `Playing: ${name} (via proxy)`);
+                            channelNameDisplay.textContent = `Now Playing: ${name}`;
+                            updateDebugInfo('', '', 'Playing via proxy successfully');
+                            
+                            if (!resolved) {
+                                resolved = true;
+                                resolve(true);
+                            }
+                        } else {
+                            console.error(`Proxy ${proxyIndex + 1} failed (attempt ${attempts + 1}):`, error);
+                            const errorMsg = typeof error === 'string' ? error : error?.message || 'Unknown error';
+                            updateDebugInfo('', '', `Proxy ${proxyIndex + 1} failed`, errorMsg);
+                            
+                            attempts++;
+                            proxyIndex = Math.floor(attempts / 2); // Try each proxy twice
+                            
+                            if (attempts < maxAttempts) {
+                                setTimeout(tryNextProxy, 2000); // Wait 2 seconds between attempts
+                            } else {
+                                // All proxies failed
+                                if (!resolved) {
+                                    resolved = true;
+                                    resolve(false);
+                                }
+                            }
+                        }
+                    }
+                };
+                
+                // Start the proxy attempts
+                tryNextProxy();
+            });
+        }
+        
+        function tryProxiedHlsPlayback(proxiedUrl, name, channelId) {
+            return new Promise((resolve) => {
+                console.log(`Trying HLS.js with proxied URL: ${proxiedUrl}`);
+                
+                if (!window.Hls || !Hls.isSupported()) {
+                    console.log('HLS.js not supported for proxy playback');
+                    resolve(false);
                     return;
                 }
-
-                const proxy = PROXIES[proxyIndex % PROXIES.length];
-                let proxiedUrl;
                 
-                // Handle different proxy formats
-                if (proxy.includes('allorigins.win')) {
-                    proxiedUrl = `${proxy}${encodeURIComponent(url)}`;
-                } else if (proxy.includes('cors.eu.org')) {
-                    proxiedUrl = `${proxy}${url}`;
-                } else if (proxy.includes('codetabs.com')) {
-                    proxiedUrl = `${proxy}${encodeURIComponent(url)}`;
-                } else {
-                    proxiedUrl = `${proxy}${encodeURIComponent(url)}`;
-                }
-                
-                console.log(`Trying proxy ${proxyIndex + 1} (attempt ${attempts + 1}): ${proxy}`);
-                updateStatus('loading', `Trying proxy server ${proxyIndex + 1}/${PROXIES.length}...`);
-                updateDebugInfo(proxiedUrl, `Proxy ${proxyIndex + 1}`, `Attempt ${attempts + 1}/${maxAttempts}`);
-                
-                // Reset video element
-                videoPlayer.src = '';
-                videoPlayer.removeAttribute('type');
-                videoPlayer.load();
-                
-                // Set proxied source
-                videoPlayer.src = proxiedUrl;
-                videoPlayer.load();
-                
-                const onSuccess = () => {
-                    console.log(`Proxied playback successful with proxy ${proxyIndex + 1}`);
-                    updateStatus('online', `Playing: ${name} (via proxy)`);
-                    channelNameDisplay.textContent = `Now Playing: ${name}`;
-                    updateDebugInfo('', '', 'Playing via proxy successfully');
-                    cleanup();
-                };
-                
-                const onError = (error) => {
-                    console.error(`Proxy ${proxyIndex + 1} failed (attempt ${attempts + 1}):`, error);
-                    const errorMsg = typeof error === 'string' ? error : error?.message || 'Unknown error';
-                    updateDebugInfo('', '', `Proxy ${proxyIndex + 1} failed`, errorMsg);
-                    cleanup();
-                    
-                    attempts++;
-                    proxyIndex = Math.floor(attempts / 2); // Try each proxy twice
-                    
-                    if (attempts < maxAttempts) {
-                        setTimeout(tryNextProxy, 2000); // Wait 2 seconds between attempts
-                    } else {
-                        // Final fallback - try a basic blob URL approach
-                        tryBlobPlayback(url, name, channelId);
+                const hlsInstance = new Hls({
+                    debug: false,
+                    enableWorker: true,
+                    maxBufferLength: 20,
+                    fragLoadingMaxRetry: 3, // Reduced retries for proxied streams
+                    manifestLoadingMaxRetry: 3,
+                    fragLoadingTimeOut: 20000,
+                    manifestLoadingTimeOut: 15000,
+                    xhrSetup: function(xhr, url) {
+                        xhr.withCredentials = false;
+                        xhr.timeout = 20000;
                     }
-                };
+                });
                 
-                const cleanup = () => {
-                    videoPlayer.removeEventListener('loadeddata', onLoadedData);
-                    videoPlayer.removeEventListener('canplay', onCanPlay);
-                    videoPlayer.removeEventListener('error', onVideoError);
-                };
-                
-                const onLoadedData = () => {
-                    const playPromise = videoPlayer.play();
-                    if (playPromise !== undefined) {
-                        playPromise.then(onSuccess).catch(onError);
+                let resolved = false;
+                const timeoutId = setTimeout(() => {
+                    if (!resolved) {
+                        resolved = true;
+                        try {
+                            hlsInstance.destroy();
+                        } catch (e) {}
+                        resolve(false);
                     }
-                };
+                }, 15000);
                 
-                const onCanPlay = () => {
-                    const playPromise = videoPlayer.play();
-                    if (playPromise !== undefined) {
-                        playPromise.then(onSuccess).catch(onError);
+                hlsInstance.loadSource(proxiedUrl);
+                hlsInstance.attachMedia(videoPlayer);
+                
+                hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+                    videoPlayer.play().then(() => {
+                        if (!resolved) {
+                            resolved = true;
+                            clearTimeout(timeoutId);
+                            console.log('Proxied HLS playback successful');
+                            window.hls = hlsInstance; // Store for error recovery
+                            resolve(true);
+                        }
+                    }).catch(() => {
+                        if (!resolved) {
+                            resolved = true;
+                            clearTimeout(timeoutId);
+                            try {
+                                hlsInstance.destroy();
+                            } catch (e) {}
+                            resolve(false);
+                        }
+                    });
+                });
+                
+                hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal && !resolved) {
+                        resolved = true;
+                        clearTimeout(timeoutId);
+                        try {
+                            hlsInstance.destroy();
+                        } catch (e) {}
+                        resolve(false);
                     }
-                };
-                
-                const onVideoError = (e) => {
-                    console.error('Video element error:', e);
-                    onError(e);
-                };
-                
-                videoPlayer.addEventListener('loadeddata', onLoadedData, { once: true });
-                videoPlayer.addEventListener('canplay', onCanPlay, { once: true });
-                videoPlayer.addEventListener('error', onVideoError, { once: true });
-                
-                // Timeout for this attempt
-                setTimeout(() => {
-                    if (videoPlayer.readyState === 0) {
-                        console.log(`Proxy ${proxyIndex + 1} timeout`);
-                        onError(new Error('Timeout'));
-                    }
-                }, 15000); // 15 second timeout per proxy
+                });
+            });
+        }
+        
+        function tryProxiedDirectPlayback(proxiedUrl, name, channelId, callback) {
+            console.log(`Trying direct playback with proxied URL: ${proxiedUrl}`);
+            
+            // Reset video element
+            videoPlayer.src = '';
+            videoPlayer.removeAttribute('type');
+            videoPlayer.load();
+            
+            // Set proxied source
+            videoPlayer.src = proxiedUrl;
+            videoPlayer.load();
+            
+            let callbackCalled = false;
+            
+            const cleanup = () => {
+                videoPlayer.removeEventListener('loadeddata', onLoadedData);
+                videoPlayer.removeEventListener('canplay', onCanPlay);
+                videoPlayer.removeEventListener('error', onVideoError);
             };
             
-            tryNextProxy();
+            const onSuccess = () => {
+                if (!callbackCalled) {
+                    callbackCalled = true;
+                    cleanup();
+                    callback(true);
+                }
+            };
+            
+            const onError = (error) => {
+                if (!callbackCalled) {
+                    callbackCalled = true;
+                    cleanup();
+                    callback(false, error);
+                }
+            };
+            
+            const onLoadedData = () => {
+                const playPromise = videoPlayer.play();
+                if (playPromise !== undefined) {
+                    playPromise.then(onSuccess).catch(onError);
+                } else {
+                    onSuccess();
+                }
+            };
+            
+            const onCanPlay = () => {
+                const playPromise = videoPlayer.play();
+                if (playPromise !== undefined) {
+                    playPromise.then(onSuccess).catch(onError);
+                } else {
+                    onSuccess();
+                }
+            };
+            
+            const onVideoError = (e) => {
+                console.error('Video element error with proxy:', e);
+                onError(e);
+            };
+            
+            videoPlayer.addEventListener('loadeddata', onLoadedData, { once: true });
+            videoPlayer.addEventListener('canplay', onCanPlay, { once: true });
+            videoPlayer.addEventListener('error', onVideoError, { once: true });
+              // Timeout for this attempt
+            setTimeout(() => {
+                if (!callbackCalled && videoPlayer.readyState === 0) {
+                    console.log(`Proxied direct playback timeout`);
+                    onError(new Error('Timeout - stream may be slow or blocked'));
+                }
+            }, 15000); // 15 second timeout per proxy
         }
 
         function tryBlobPlayback(url, name, channelId) {
