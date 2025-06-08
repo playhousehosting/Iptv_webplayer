@@ -762,15 +762,14 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             
             // Reset debug state for new channel
             resetDebugState();
-            updateDebugInfo(url, 'Initializing', 'Starting playback');
-
-            // Clean and validate the URL
-            const cleanUrl = url.trim();
-            if (!cleanUrl) {
-                const error = 'Invalid stream URL';
-                showError(error);
+            updateDebugInfo(url, 'Initializing', 'Starting playback');            // Clean and validate the URL
+            let cleanUrl;
+            try {
+                cleanUrl = validateUrl(url.trim());
+            } catch (error) {
+                showError(error.message);
                 updateStatus('error', 'Invalid URL');
-                updateDebugInfo('', '', 'Failed', error);
+                updateDebugInfo('', '', 'Failed', error.message);
                 return;
             }
 
@@ -788,15 +787,41 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             
             // Enhanced playback strategy with better fallbacks
             playWithFallbackStrategy(convertedUrl, name, channelId);
-        }
-
-        async function playWithFallbackStrategy(url, name, channelId) {
-            const strategies = [
-                { name: 'Direct Stream', method: () => tryDirectPlayback(url, name, channelId) },
-                { name: 'HLS.js', method: () => tryHlsPlayback(url, name, channelId) },
-                { name: 'Native HLS', method: () => tryNativeHlsPlayback(url, name, channelId) },
-                { name: 'Proxied Stream', method: () => tryProxiedPlayback(url, name, channelId) }
-            ];
+        }        async function playWithFallbackStrategy(url, name, channelId) {
+            console.log(`Starting playback with fallback strategy for: ${url}`);
+            resetDebugState();
+            
+            // Check for Mixed Content issues (HTTP URLs on HTTPS pages)
+            const isHttpUrl = url.startsWith('http://');
+            const isHttpsPage = window.location.protocol === 'https:';
+            const hasMixedContentIssue = isHttpUrl && isHttpsPage;
+            
+            if (hasMixedContentIssue) {
+                console.warn('🔒 Mixed Content detected - HTTP stream on HTTPS page. Using proxy-first strategy.');
+                showError(`🔒 Mixed Content Warning: This HTTP stream may be blocked by your browser's security policy. Attempting proxy methods...`);
+            }
+            
+            // Define strategies based on mixed content situation
+            let strategies;
+            
+            if (hasMixedContentIssue) {
+                // For HTTP URLs on HTTPS pages, prioritize proxy methods
+                strategies = [
+                    { name: 'Server Proxy', method: () => tryServerProxy(url, name, channelId) },
+                    { name: 'Proxied HLS.js', method: () => tryProxiedPlayback(url, name, channelId) },
+                    { name: 'HTTPS Upgrade', method: () => tryHttpsUpgrade(url, name, channelId) },
+                    { name: 'Direct (Last Resort)', method: () => tryDirectPlayback(url, name, channelId) }
+                ];
+            } else {
+                // For HTTPS URLs or HTTP page, use normal strategy
+                strategies = [
+                    { name: 'Direct Stream', method: () => tryDirectPlayback(url, name, channelId) },
+                    { name: 'HLS.js', method: () => tryHlsPlayback(url, name, channelId) },
+                    { name: 'Native HLS', method: () => tryNativeHlsPlayback(url, name, channelId) },
+                    { name: 'Server Proxy', method: () => tryServerProxy(url, name, channelId) },
+                    { name: 'External Proxies', method: () => tryProxiedPlayback(url, name, channelId) }
+                ];
+            }
 
             for (let i = 0; i < strategies.length; i++) {
                 const strategy = strategies[i];
@@ -807,6 +832,7 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
                     const success = await strategy.method();
                     if (success) {
                         console.log(`Success with strategy: ${strategy.name}`);
+                        hideError(); // Hide mixed content warning on success
                         return;
                     }
                 } catch (error) {
@@ -820,7 +846,16 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             }
             
             // All strategies failed
-            showError('Unable to play stream with any available method');
+            const errorMsg = hasMixedContentIssue 
+                ? `Unable to play stream due to Mixed Content restrictions. The stream URL (${url}) uses HTTP but this page is served over HTTPS.
+
+🔧 Possible solutions:
+• Try using a VPN or different network
+• Contact the stream provider for HTTPS URLs
+• Use a desktop media player like VLC`
+                : 'Unable to play stream with any available method';
+                
+            showError(errorMsg);
             updateStatus('error', 'All playback methods failed');
         }
 
@@ -1626,7 +1661,248 @@ Stream URL: ${url}`;
                 showError(errorMessage);
                 updateStatus('error', 'Stream incompatible');
             });
-        }// --- PARSING FUNCTIONS ---
+        }
+
+        // --- MISSING UTILITY FUNCTIONS ---
+        
+        /**
+         * Validates a stream URL and ensures it uses HTTP/HTTPS protocol
+         * @param {string} url - The URL to validate
+         * @returns {string} - The validated and cleaned URL
+         * @throws {Error} - If the URL is invalid or uses unsupported protocol
+         */
+        function validateUrl(url) {
+            if (!url || typeof url !== 'string') {
+                throw new Error('Invalid URL: URL must be a non-empty string');
+            }
+            
+            // Remove any leading/trailing whitespace
+            const cleanUrl = url.trim();
+            
+            if (!cleanUrl) {
+                throw new Error('Invalid URL: URL cannot be empty');
+            }
+            
+            try {
+                const urlObj = new URL(cleanUrl);
+                
+                // Check if protocol is supported
+                if (!['http:', 'https:'].includes(urlObj.protocol)) {
+                    throw new Error(`Unsupported protocol: ${urlObj.protocol}. Only HTTP and HTTPS URLs are supported.`);
+                }
+                
+                return cleanUrl;
+            } catch (error) {
+                if (error.message.includes('Unsupported protocol')) {
+                    throw error;
+                }
+                throw new Error(`Invalid URL format: ${cleanUrl}. Please ensure the URL is properly formatted (e.g., http://example.com/stream.m3u8)`);
+            }
+        }
+
+        /**
+         * Attempts to upgrade an HTTP URL to HTTPS and play the stream
+         * @param {string} url - The original HTTP URL
+         * @param {string} name - Channel name
+         * @param {string} channelId - Channel ID
+         * @returns {Promise<boolean>} - True if successful, false otherwise
+         */
+        async function tryHttpsUpgrade(url, name, channelId) {
+            console.log('Attempting HTTPS upgrade...');
+            
+            // Only attempt if URL is HTTP
+            if (!url.startsWith('http://')) {
+                console.log('URL is not HTTP, skipping HTTPS upgrade');
+                return false;
+            }
+            
+            try {
+                const httpsUrl = url.replace('http://', 'https://');
+                console.log(`Upgrading URL: ${url} -> ${httpsUrl}`);
+                
+                updateDebugInfo(httpsUrl, 'HTTPS Upgrade', 'Attempting HTTPS version of stream');
+                
+                // Test if HTTPS version is accessible
+                const response = await fetch(httpsUrl, {
+                    method: 'HEAD',
+                    signal: AbortSignal.timeout(10000) // 10 second timeout
+                });
+                
+                if (!response.ok) {
+                    console.log(`HTTPS upgrade failed: HTTP ${response.status}`);
+                    return false;
+                }
+                
+                console.log('HTTPS version is accessible, attempting playback...');
+                
+                // Try direct playback with HTTPS URL
+                videoPlayer.src = httpsUrl;
+                
+                return new Promise((resolve) => {
+                    const onCanPlay = () => {
+                        console.log('HTTPS upgrade successful');
+                        updateStatus('online', `Playing: ${name} (HTTPS)`);
+                        channelNameDisplay.textContent = `Now Playing: ${name}`;
+                        cleanup();
+                        resolve(true);
+                    };
+                    
+                    const onError = (error) => {
+                        console.log('HTTPS upgrade playback failed:', error);
+                        cleanup();
+                        resolve(false);
+                    };
+                    
+                    const cleanup = () => {
+                        videoPlayer.removeEventListener('canplay', onCanPlay);
+                        videoPlayer.removeEventListener('error', onError);
+                    };
+                    
+                    videoPlayer.addEventListener('canplay', onCanPlay, { once: true });
+                    videoPlayer.addEventListener('error', onError, { once: true });
+                    
+                    // Timeout after 15 seconds
+                    setTimeout(() => {
+                        cleanup();
+                        resolve(false);
+                    }, 15000);
+                });
+                
+            } catch (error) {
+                console.log('HTTPS upgrade failed:', error.message);
+                updateDebugInfo('', '', 'Failed', `HTTPS upgrade error: ${error.message}`);
+                return false;
+            }
+        }
+
+        /**
+         * Attempts to play a stream through a server proxy
+         * @param {string} url - The stream URL
+         * @param {string} name - Channel name
+         * @param {string} channelId - Channel ID
+         * @returns {Promise<boolean>} - True if successful, false otherwise
+         */
+        async function tryServerProxy(url, name, channelId) {
+            console.log('Attempting server proxy playback...');
+            
+            try {
+                // Use our API proxy endpoint if available
+                const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`;
+                
+                updateDebugInfo(proxyUrl, 'Server Proxy', 'Using server-side proxy');
+                
+                // Test proxy availability first
+                const testResponse = await fetch(proxyUrl, {
+                    method: 'HEAD',
+                    signal: AbortSignal.timeout(10000) // 10 second timeout
+                });
+                
+                if (!testResponse.ok) {
+                    console.log(`Server proxy not available: HTTP ${testResponse.status}`);
+                    return false;
+                }
+                
+                console.log('Server proxy is available, attempting playback...');
+                
+                // Check if it's an HLS stream
+                if (url.includes('.m3u8') || url.includes('playlist')) {
+                    // Use HLS.js for M3U8 streams through proxy
+                    if (Hls.isSupported()) {
+                        return new Promise((resolve) => {
+                            if (window.hls) {
+                                window.hls.destroy();
+                            }
+                            
+                            window.hls = new Hls({
+                                enableWorker: true,
+                                lowLatencyMode: true,
+                                backBufferLength: 90
+                            });
+                            
+                            const onManifestParsed = () => {
+                                console.log('Server proxy HLS manifest loaded successfully');
+                                videoPlayer.play().then(() => {
+                                    updateStatus('online', `Playing: ${name} (Server Proxy)`);
+                                    channelNameDisplay.textContent = `Now Playing: ${name}`;
+                                    cleanup();
+                                    resolve(true);
+                                }).catch((error) => {
+                                    console.log('Server proxy HLS playback failed:', error);
+                                    cleanup();
+                                    resolve(false);
+                                });
+                            };
+                            
+                            const onError = (event, data) => {
+                                console.log('Server proxy HLS error:', data);
+                                cleanup();
+                                resolve(false);
+                            };
+                            
+                            const cleanup = () => {
+                                window.hls.off(Hls.Events.MANIFEST_PARSED, onManifestParsed);
+                                window.hls.off(Hls.Events.ERROR, onError);
+                            };
+                            
+                            window.hls.on(Hls.Events.MANIFEST_PARSED, onManifestParsed);
+                            window.hls.on(Hls.Events.ERROR, onError);
+                            window.hls.loadSource(proxyUrl);
+                            window.hls.attachMedia(videoPlayer);
+                            
+                            // Timeout after 20 seconds
+                            setTimeout(() => {
+                                cleanup();
+                                if (window.hls) {
+                                    window.hls.destroy();
+                                    window.hls = null;
+                                }
+                                resolve(false);
+                            }, 20000);
+                        });
+                    }
+                } else {
+                    // Direct proxy playback for non-HLS streams
+                    videoPlayer.src = proxyUrl;
+                    
+                    return new Promise((resolve) => {
+                        const onCanPlay = () => {
+                            console.log('Server proxy direct playback successful');
+                            updateStatus('online', `Playing: ${name} (Server Proxy)`);
+                            channelNameDisplay.textContent = `Now Playing: ${name}`;
+                            cleanup();
+                            resolve(true);
+                        };
+                        
+                        const onError = (error) => {
+                            console.log('Server proxy direct playback failed:', error);
+                            cleanup();
+                            resolve(false);
+                        };
+                        
+                        const cleanup = () => {
+                            videoPlayer.removeEventListener('canplay', onCanPlay);
+                            videoPlayer.removeEventListener('error', onError);
+                        };
+                        
+                        videoPlayer.addEventListener('canplay', onCanPlay, { once: true });
+                        videoPlayer.addEventListener('error', onError, { once: true });
+                        
+                        // Timeout after 15 seconds
+                        setTimeout(() => {
+                            cleanup();
+                            resolve(false);
+                        }, 15000);
+                    });
+                }
+                
+            } catch (error) {
+                console.log('Server proxy failed:', error.message);
+                updateDebugInfo('', '', 'Failed', `Server proxy error: ${error.message}`);
+                return false;
+            }
+        }
+
+        // --- PARSING FUNCTIONS ---
         function parseM3U(data, baseUrl) {
             const base = new URL(baseUrl);
             const channels = [];
