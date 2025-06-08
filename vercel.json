@@ -3,8 +3,7 @@
     "api/**/*.js": {
       "maxDuration": 30
     }
-  },
-  "headers": [
+  },  "headers": [
     {
       "source": "/(.*)",
       "headers": [
@@ -14,11 +13,15 @@
         },
         {
           "key": "Access-Control-Allow-Methods",
-          "value": "GET, POST, PUT, DELETE, OPTIONS"
+          "value": "GET, HEAD, OPTIONS"
         },
         {
           "key": "Access-Control-Allow-Headers",
-          "value": "X-Requested-With, Content-Type, Authorization, Range"
+          "value": "Accept, Accept-Language, Content-Type, Range"
+        },
+        {
+          "key": "Access-Control-Expose-Headers",
+          "value": "Content-Length, Content-Range, Content-Type"
         },
         {
           "key": "Cross-Origin-Embedder-Policy",
@@ -31,6 +34,18 @@
         {
           "key": "Cross-Origin-Resource-Policy",
           "value": "cross-origin"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
         }
       ]
     },

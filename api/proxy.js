@@ -1,71 +1,85 @@
 // Vercel serverless function for CORS proxy
 export default async function handler(req, res) {
-  // Enable CORS
+  // Enable CORS with secure headers
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Authorization, Range');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Accept, Accept-Language, Content-Type, Range');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Type');
+  
+  // Security headers
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
 
   // Handle preflight OPTIONS request
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
   }
-
   const { url } = req.query;
   
   if (!url) {
     return res.status(400).json({ error: 'URL parameter is required' });
   }
 
+  // Only allow GET and HEAD methods for security
+  if (!['GET', 'HEAD'].includes(req.method)) {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   try {
-    // Decode the URL
+    // Decode and validate the URL
     const decodedUrl = decodeURIComponent(url);
+    const parsedUrl = new URL(decodedUrl);
     
-    // Validate URL
-    new URL(decodedUrl);
+    // Security: Only allow HTTP/HTTPS protocols
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+      return res.status(400).json({ error: 'Invalid protocol. Only HTTP/HTTPS allowed.' });
+    }
     
-    // Set up fetch options with proper headers
+    // Set up fetch options with minimal, safe headers
     const fetchOptions = {
       method: req.method,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         'Accept': '*/*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1'
+        'Accept-Language': 'en-US,en;q=0.9'
       },
-      timeout: 15000
+      signal: AbortSignal.timeout(30000), // 30 second timeout
+      redirect: 'follow'
     };
 
-    // Forward specific headers from the original request
-    const forwardHeaders = ['range', 'authorization', 'referer'];
-    forwardHeaders.forEach(header => {
+    // Forward only safe headers from the original request
+    const safeHeaders = ['range', 'accept', 'accept-language'];
+    safeHeaders.forEach(header => {
       if (req.headers[header]) {
         fetchOptions.headers[header] = req.headers[header];
       }
-    });
-
-    // Make the request
+    });    // Make the request
     const response = await fetch(decodedUrl, fetchOptions);
     
-    // Forward response headers
-    const responseHeaders = {};
-    response.headers.forEach((value, key) => {
-      // Forward important headers for streaming
-      if (['content-type', 'content-length', 'content-range', 'accept-ranges', 'cache-control'].includes(key.toLowerCase())) {
-        responseHeaders[key] = value;
+    // Handle response status
+    if (!response.ok) {
+      console.warn(`Proxy request failed: ${response.status} ${response.statusText} for ${decodedUrl}`);
+      return res.status(response.status).json({ 
+        error: `Source returned ${response.status}`, 
+        details: response.statusText,
+        url: decodedUrl
+      });
+    }
+    
+    // Forward safe response headers for streaming
+    const safeResponseHeaders = ['content-type', 'content-length', 'content-range', 'accept-ranges'];
+    safeResponseHeaders.forEach(headerName => {
+      const headerValue = response.headers.get(headerName);
+      if (headerValue) {
+        res.setHeader(headerName, headerValue);
       }
     });
 
-    // Set response headers
-    Object.entries(responseHeaders).forEach(([key, value]) => {
-      res.setHeader(key, value);
-    });
-
-    // Stream the response
+    // Set response status
     res.status(response.status);
     
+    // Stream the response body efficiently
     if (response.body) {
       const reader = response.body.getReader();
       
@@ -80,10 +94,27 @@ export default async function handler(req, res) {
       }
     }
     
-    res.end();
-    
+    res.end();    
   } catch (error) {
-    console.error('Proxy error:', error);
+    console.error('Proxy error:', error.name, error.message);
+    
+    // Handle specific error types
+    if (error.name === 'AbortError') {
+      return res.status(408).json({ 
+        error: 'Request timeout', 
+        details: 'The request took too long to complete',
+        url: url 
+      });
+    }
+    
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      return res.status(502).json({ 
+        error: 'Network error', 
+        details: 'Unable to connect to the source',
+        url: url 
+      });
+    }
+    
     res.status(500).json({ 
       error: 'Proxy request failed', 
       details: error.message,
