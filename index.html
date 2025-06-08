@@ -203,20 +203,24 @@
             <button id="close-modal-btn" class="mt-4 w-full bg-gray-600 hover:bg-gray-700 p-2 rounded">Close</button>
         </div>
     </div>    <script>
-    document.addEventListener('DOMContentLoaded', () => {        // --- CONSTANTS ---
+    document.addEventListener('DOMContentLoaded', () => {
+        // --- CONSTANTS ---
+        const isDevelopment = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname === '';
+        
+        // Enhanced proxy list with development fallbacks
         const PROXIES = [
-            // Updated working proxy list for 2025
-            'https://api.allorigins.win/raw?url=',
-            'https://api.codetabs.com/v1/proxy?quest=',
+            // High-reliability public proxies (2025)
             'https://cors.eu.org/',
             'https://thingproxy.freeboard.io/fetch/',
-            // Backup proxies
             'https://cors.bridged.cc/',
-            'https://yacdn.org/proxy/',
-            'https://cors-proxy.fringe.zone/',
-            // Vercel-specific fallbacks
             'https://api.cors.lol/?url=',
+            // Backup public proxies
+            'https://api.allorigins.win/raw?url=',
+            'https://cors-proxy.fringe.zone/',
             'https://proxy-cors.isomorphic-git.org/',
+            // Alternative method proxies
+            'https://api.codetabs.com/v1/proxy?quest=',
+            'https://yacdn.org/proxy/'
         ];
         
         // --- DOM ELEMENTS ---
@@ -298,20 +302,14 @@
                 try {
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout for direct
-                    
-                    const response = await fetch(url, {
+                      const response = await fetch(url, {
                         method: 'GET',
                         mode: 'cors',
                         cache: 'no-store',
                         credentials: 'omit',
                         signal: controller.signal,
                         headers: {
-                            'Accept': '*/*',
-                            'Cache-Control': 'no-cache, no-store, must-revalidate',
-                            'Pragma': 'no-cache',
-                            'Expires': '0',
-                            // Add User-Agent for better compatibility
-                            'User-Agent': 'Mozilla/5.0 (compatible; IPTV-WebPlayer/1.0)'
+                            'Accept': '*/*'
                         }
                     });
                     
@@ -362,17 +360,14 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s timeout for proxies
-                
-                const response = await fetch(fetchUrl, {
+                  const response = await fetch(fetchUrl, {
                     method: 'GET',
                     mode: 'cors',
                     cache: 'no-store',
                     credentials: 'omit',
                     signal: controller.signal,
                     headers: {
-                        'Accept': '*/*',
-                        'Cache-Control': 'no-cache',
-                        'User-Agent': 'Mozilla/5.0 (compatible; IPTV-WebPlayer/1.0)'
+                        'Accept': '*/*'
                     }
                 });
                 
@@ -795,21 +790,15 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             const isHttpUrl = url.startsWith('http://');
             const isHttpsPage = window.location.protocol === 'https:';
             const hasMixedContentIssue = isHttpUrl && isHttpsPage;
-            
-            if (hasMixedContentIssue) {
-                console.warn('🔒 Mixed Content detected - HTTP stream on HTTPS page. Using proxy-first strategy.');
-                showError(`🔒 Mixed Content Warning: This HTTP stream may be blocked by your browser's security policy. Attempting proxy methods...`);
-            }
-            
-            // Define strategies based on mixed content situation
-            let strategies;
-            
-            if (hasMixedContentIssue) {
-                // For HTTP URLs on HTTPS pages, prioritize proxy methods
+              if (hasMixedContentIssue) {
+                console.warn('🔒 Mixed Content detected - HTTP stream on HTTPS page. Using enhanced proxy strategy.');
+                showError(`🔒 Mixed Content Warning: HTTP stream detected on HTTPS site. Trying secure methods...`);
+                
+                // For HTTP URLs on HTTPS pages, prioritize secure methods
                 strategies = [
-                    { name: 'Server Proxy', method: () => tryServerProxy(url, name, channelId) },
-                    { name: 'Proxied HLS.js', method: () => tryProxiedPlayback(url, name, channelId) },
                     { name: 'HTTPS Upgrade', method: () => tryHttpsUpgrade(url, name, channelId) },
+                    { name: 'Server Proxy', method: () => tryServerProxy(url, name, channelId) },
+                    { name: 'Proxied Stream', method: () => tryProxiedPlayback(url, name, channelId) },
                     { name: 'Direct (Last Resort)', method: () => tryDirectPlayback(url, name, channelId) }
                 ];
             } else {
@@ -844,16 +833,34 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
                     await new Promise(resolve => setTimeout(resolve, 1000));
                 }
             }
-            
-            // All strategies failed
+              // All strategies failed
             const errorMsg = hasMixedContentIssue 
-                ? `Unable to play stream due to Mixed Content restrictions. The stream URL (${url}) uses HTTP but this page is served over HTTPS.
+                ? `❌ Mixed Content Security Block
 
-🔧 Possible solutions:
-• Try using a VPN or different network
-• Contact the stream provider for HTTPS URLs
-• Use a desktop media player like VLC`
-                : 'Unable to play stream with any available method';
+The stream URL uses HTTP, but this site is HTTPS. Modern browsers block mixed content for security.
+
+� Stream URL: ${url}
+
+🔧 Solutions:
+• Wait a moment - some proxies may still be connecting
+• Try a different stream from your playlist  
+• Use a VPN to access geo-blocked content
+• Contact your IPTV provider for HTTPS streams
+• Use VLC media player as an alternative`
+                : `❌ Stream Playback Failed
+
+Unable to play this stream with any available method.
+
+📋 Stream URL: ${url}
+
+🔧 Troubleshooting:
+• Check your internet connection
+• Verify the stream URL is correct and active
+• Try a different stream from your playlist
+• The stream server may be temporarily unavailable
+• Some streams require VPN access
+
+💡 Tip: Use the Debug Panel for technical details`;
                 
             showError(errorMsg);
             updateStatus('error', 'All playback methods failed');
@@ -985,19 +992,15 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
                     fragLoadingTimeOut: 25000, // Increased timeout for cloud latency
                     manifestLoadingTimeOut: 15000,
                     levelLoadingTimeOut: 15000,
-                    fragLoadingRetryDelay: 1000, // Delay between retries
-                    manifestLoadingRetryDelay: 1000,
+                    fragLoadingRetryDelay: 1000, // Delay between retries                    manifestLoadingRetryDelay: 1000,
                     // Enhanced for Vercel/cloud deployment
                     xhrSetup: function(xhr, url) {
-                        // Set headers for better compatibility in cloud environments
+                        // Set basic headers for better compatibility
                         xhr.withCredentials = false;
                         xhr.timeout = 25000; // 25 second timeout
-                        xhr.setRequestHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-                        xhr.setRequestHeader('Pragma', 'no-cache');
-                        xhr.setRequestHeader('User-Agent', 'Mozilla/5.0 (compatible; IPTV-WebPlayer/1.0; +https://vercel.app)');
-                    },
-                    fetchSetup: function(context, initParams) {
-                        // Enhanced fetch setup for Vercel with better error handling
+                        // Remove problematic headers that cause CORS issues
+                    },                    fetchSetup: function(context, initParams) {
+                        // Enhanced fetch setup for better cloud compatibility
                         const controller = new AbortController();
                         setTimeout(() => controller.abort(), 25000); // 25s timeout
                         
@@ -1008,10 +1011,8 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
                             credentials: 'omit',
                             signal: controller.signal,
                             headers: {
-                                ...initParams.headers,
-                                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                                'Pragma': 'no-cache',
-                                'User-Agent': 'Mozilla/5.0 (compatible; IPTV-WebPlayer/1.0; +https://vercel.app)'
+                                ...initParams.headers
+                                // Remove problematic headers that cause CORS issues
                             }
                         });
                     }
@@ -1721,11 +1722,16 @@ Stream URL: ${url}`;
                 console.log(`Upgrading URL: ${url} -> ${httpsUrl}`);
                 
                 updateDebugInfo(httpsUrl, 'HTTPS Upgrade', 'Attempting HTTPS version of stream');
-                
-                // Test if HTTPS version is accessible
+                  // Test if HTTPS version is accessible with minimal headers
                 const response = await fetch(httpsUrl, {
                     method: 'HEAD',
-                    signal: AbortSignal.timeout(10000) // 10 second timeout
+                    mode: 'cors',
+                    cache: 'no-store',
+                    credentials: 'omit',
+                    signal: AbortSignal.timeout(8000), // 8 second timeout
+                    headers: {
+                        'Accept': '*/*'
+                    }
                 });
                 
                 if (!response.ok) {
@@ -2410,6 +2416,7 @@ Stream URL: ${url}`;
                             <video controls autoplay style="width:100%;height:100vh;">
                                 <source src="${url}" type="application/vnd.apple.mpegurl">
                                 <source src="${url}" type="video/mp4">
+                                <source src="${url}" type="application/x-mpegURL">
                                 <source src="${url}">
                                 Your browser does not support this video format.
                             </video>
