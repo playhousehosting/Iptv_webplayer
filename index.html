@@ -203,23 +203,20 @@
             <button id="close-modal-btn" class="mt-4 w-full bg-gray-600 hover:bg-gray-700 p-2 rounded">Close</button>
         </div>
     </div>    <script>
-    document.addEventListener('DOMContentLoaded', () => {
-        // --- CONSTANTS ---
+    document.addEventListener('DOMContentLoaded', () => {        // --- CONSTANTS ---
         const PROXIES = [
-            // Vercel-optimized proxy list - most reliable first
+            // Updated working proxy list for 2025
             'https://api.allorigins.win/raw?url=',
-            'https://cors-anywhere.herokuapp.com/',
-            'https://corsproxy.io/?',
-            'https://proxy.cors.sh/',
             'https://api.codetabs.com/v1/proxy?quest=',
             'https://cors.eu.org/',
             'https://thingproxy.freeboard.io/fetch/',
+            // Backup proxies
             'https://cors.bridged.cc/',
             'https://yacdn.org/proxy/',
-            // Additional reliable proxies for Vercel
             'https://cors-proxy.fringe.zone/',
-            'https://cors.proxy-server.ga/',
+            // Vercel-specific fallbacks
             'https://api.cors.lol/?url=',
+            'https://proxy-cors.isomorphic-git.org/',
         ];
         
         // --- DOM ELEMENTS ---
@@ -437,38 +434,46 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             videoPlayer.addEventListener('playing', () => {
                 console.log('Video is playing');
                 hideError(); // Hide any previous errors when video starts playing
-            });
-
-            videoPlayer.addEventListener('error', (e) => {
+            });            videoPlayer.addEventListener('error', (e) => {
                 const error = videoPlayer.error;
                 console.error('Video element error:', error);
                 
                 let errorMessage = 'Unknown playback error';
+                let technicalDetails = '';
+                
                 if (error) {
                     switch(error.code) {
                         case MediaError.MEDIA_ERR_ABORTED:
                             errorMessage = 'Video playback was aborted';
+                            technicalDetails = 'The video download was cancelled';
                             break;
                         case MediaError.MEDIA_ERR_NETWORK:
                             errorMessage = 'Network error occurred while loading video';
+                            technicalDetails = 'Check your internet connection and stream URL';
                             break;
                         case MediaError.MEDIA_ERR_DECODE:
                             errorMessage = 'Video format not supported or corrupted';
+                            technicalDetails = 'The video codec may not be supported by your browser';
                             break;
                         case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-                            errorMessage = 'Video format or source not supported';
+                            errorMessage = 'Video source not supported';
+                            technicalDetails = 'The video format or URL is not valid';
                             break;
                         default:
-                            errorMessage = `Video error (code: ${error.code})`;
-                    }
-                    
-                    if (error.message) {
-                        errorMessage += `: ${error.message}`;
+                            errorMessage = `Media error (code: ${error.code})`;
+                            technicalDetails = error.message || 'Unknown media error';
                     }
                 }
                 
+                // Show user-friendly error message
                 showError(errorMessage);
                 updateStatus('error', 'Playback error');
+                console.log(`Technical details: ${technicalDetails}`);
+                
+                // Try HLS.js fallback for format errors
+                if (error && error.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
+                    console.log('Attempting HLS.js fallback for unsupported format');
+                }
             });
 
             videoPlayer.addEventListener('stalled', () => {
@@ -488,7 +493,9 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
                     updateStatus('online', `Playing: ${currentChannelName}`);
                 }
             });
-        }async function loadPlaylist() {
+        }
+
+        async function loadPlaylist() {
             const playlistUrl = playlistSelect.value;
             const epgUrl = epgUrlInput.value.trim();
             if (!playlistUrl) {
@@ -721,9 +728,7 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
                 }
             }
               return url; // Return original URL if no conversion needed
-        }
-
-        function playChannel(url, name, channelId) {
+        }        function playChannel(url, name, channelId) {
             if (hls) hls.destroy();
             updateStatus('loading', `Loading ${name}...`);
             
@@ -749,54 +754,109 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             }
             
             console.log(`Attempting to play: ${convertedUrl}`);
-            
-            // Reset video element
-            videoPlayer.src = '';
-            videoPlayer.load();
-
-            // Determine stream type and use appropriate playback method
-            if (convertedUrl.includes('.m3u8') || convertedUrl.includes('m3u8')) {
-                // HLS Stream - try HLS.js first, then native
-                if (Hls.isSupported()) {
-                    updateDebugInfo(convertedUrl, 'HLS.js', 'Attempting HLS.js playback');
-                    tryHlsPlayback(convertedUrl, name, channelId);
-                } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
-                    // Native HLS support (Safari, iOS)
-                    console.log('Using native HLS support');
-                    updateDebugInfo(convertedUrl, 'Native HLS', 'Attempting native HLS playback');
-                    tryNativeHlsPlayback(convertedUrl, name, channelId);
-                } else {
-                    // No HLS support, try direct
-                    console.log('No HLS support, trying direct playback');
-                    updateDebugInfo(convertedUrl, 'Direct', 'No HLS support, trying direct');
-                    tryDirectPlayback(convertedUrl, name, channelId);
-                }            } else {
-                // Handle .ts files and other non-HLS streams
-                if (convertedUrl.includes('.ts')) {
-                    console.log('.ts stream detected - may need special handling');
-                    updateDebugInfo(convertedUrl, 'Transport Stream', '.ts file detected, trying enhanced playback');
-                    
-                    // Try HLS.js first for .ts files as they might be valid HLS segments
-                    if (Hls.isSupported()) {
-                        console.log('Trying HLS.js for .ts stream');
-                        tryHlsPlayback(convertedUrl, name, channelId);
-                    } else {
-                        // Fallback to direct playback with enhanced compatibility
-                        console.log('No HLS support, trying direct .ts playback');
-                        tryDirectPlayback(convertedUrl, name, channelId);
-                    }
-                } else {
-                    // Non-HLS streams (MP4, FLV, etc.) - try direct first
-                    console.log('Non-HLS stream detected, trying direct playback');
-                    updateDebugInfo(convertedUrl, 'Direct', 'Non-HLS stream detected');
-                    tryDirectPlayback(convertedUrl, name, channelId);
-                }
-            }
-
             channelNameDisplay.textContent = `Loading: ${name}`;
             addRecent(channelId);
             updateMediaSession(name);
-        }        function convertXtremeCodesUrl(url) {
+            
+            // Enhanced playback strategy with better fallbacks
+            playWithFallbackStrategy(convertedUrl, name, channelId);
+        }
+
+        async function playWithFallbackStrategy(url, name, channelId) {
+            const strategies = [
+                { name: 'Direct Stream', method: () => tryDirectPlayback(url, name, channelId) },
+                { name: 'HLS.js', method: () => tryHlsPlayback(url, name, channelId) },
+                { name: 'Native HLS', method: () => tryNativeHlsPlayback(url, name, channelId) },
+                { name: 'Proxied Stream', method: () => tryProxiedPlayback(url, name, channelId) }
+            ];
+
+            for (let i = 0; i < strategies.length; i++) {
+                const strategy = strategies[i];
+                console.log(`Trying strategy ${i + 1}: ${strategy.name}`);
+                updateStatus('loading', `Trying ${strategy.name}...`);
+                
+                try {
+                    const success = await strategy.method();
+                    if (success) {
+                        console.log(`Success with strategy: ${strategy.name}`);
+                        return;
+                    }
+                } catch (error) {
+                    console.error(`Strategy ${strategy.name} failed:`, error);
+                }
+                
+                // Wait between strategies
+                if (i < strategies.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
+            
+            // All strategies failed
+            showError('Unable to play stream with any available method');
+            updateStatus('error', 'All playback methods failed');
+        }
+
+        function tryDirectPlayback(url, name, channelId) {
+            return new Promise((resolve, reject) => {
+                console.log(`Trying direct playback: ${url}`);
+                incrementDebugAttempts();
+                updateDebugInfo(url, 'Direct', 'Attempting direct playback');
+                
+                // Reset and prepare video element
+                videoPlayer.src = '';
+                videoPlayer.removeAttribute('type');
+                videoPlayer.load();
+                
+                let timeoutId;
+                let resolved = false;
+                
+                const cleanup = () => {
+                    if (timeoutId) clearTimeout(timeoutId);
+                    videoPlayer.removeEventListener('loadeddata', onSuccess);
+                    videoPlayer.removeEventListener('error', onError);
+                };
+                
+                const onSuccess = () => {
+                    if (resolved) return;
+                    resolved = true;
+                    console.log('Direct playback successful');
+                    updateStatus('online', `Playing: ${name}`);
+                    channelNameDisplay.textContent = `Now Playing: ${name}`;
+                    updateDebugInfo(url, 'Direct', 'Success');
+                    cleanup();
+                    resolve(true);
+                };
+                
+                const onError = (error) => {
+                    if (resolved) return;
+                    resolved = true;
+                    console.error('Direct playback failed:', error);
+                    updateDebugInfo(url, 'Direct', 'Failed');
+                    cleanup();
+                    resolve(false);
+                };
+                
+                // Set up event listeners
+                videoPlayer.addEventListener('loadeddata', onSuccess, { once: true });
+                videoPlayer.addEventListener('error', onError, { once: true });
+                
+                // Set source and load
+                videoPlayer.src = url;
+                videoPlayer.load();
+                
+                // Timeout after 10 seconds
+                timeoutId = setTimeout(() => {
+                    if (!resolved) {
+                        resolved = true;
+                        console.log('Direct playback timeout');
+                        cleanup();
+                        resolve(false);
+                    }
+                }, 10000);
+            });
+        }
+
+        function convertXtremeCodesUrl(url) {
             // Handle Xtreme Codes .ts URLs by converting to M3U8 playlist
             if (url.includes('.ts') && !url.includes('.m3u8')) {
                 console.log(`Detected .ts URL, attempting conversion: ${url}`);
@@ -831,114 +891,173 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             }
             
             return url; // Return original URL if no conversion needed
-        }
+        }        function tryHlsPlayback(url, name, channelId) {
+            return new Promise((resolve, reject) => {
+                console.log(`Trying HLS.js playback: ${url}`);
+                incrementDebugAttempts();
+                updateDebugInfo(url, 'HLS.js', 'Attempting HLS.js playback');
+                
+                if (!Hls.isSupported()) {
+                    console.log('HLS.js not supported');
+                    resolve(false);
+                    return;
+                }
 
-        function tryHlsPlayback(url, name, channelId) {
-            console.log(`Trying HLS.js playback: ${url}`);              hls = new Hls({
-                debug: false,
-                enableWorker: true,
-                lowLatencyMode: false, // Disable for better cloud compatibility
-                backBufferLength: 20, // Reduced for cloud environments
-                maxBufferLength: 30, // Prevent excessive buffering
-                maxBufferSize: 60 * 1000 * 1000, // 60MB max buffer
-                fragLoadingMaxRetry: 6, // Increased retries for cloud
-                manifestLoadingMaxRetry: 6,
-                levelLoadingMaxRetry: 6,
-                fragLoadingTimeOut: 25000, // Increased timeout for cloud latency
-                manifestLoadingTimeOut: 15000,
-                levelLoadingTimeOut: 15000,
-                fragLoadingRetryDelay: 1000, // Delay between retries
-                manifestLoadingRetryDelay: 1000,
-                // Enhanced for Vercel/cloud deployment
-                xhrSetup: function(xhr, url) {
-                    // Set headers for better compatibility in cloud environments
-                    xhr.withCredentials = false;
-                    xhr.timeout = 25000; // 25 second timeout
-                    xhr.setRequestHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-                    xhr.setRequestHeader('Pragma', 'no-cache');
-                    xhr.setRequestHeader('User-Agent', 'Mozilla/5.0 (compatible; IPTV-WebPlayer/1.0; +https://vercel.app)');
-                },
-                fetchSetup: function(context, initParams) {
-                    // Enhanced fetch setup for Vercel with better error handling
-                    const controller = new AbortController();
-                    setTimeout(() => controller.abort(), 25000); // 25s timeout
-                    
-                    return new Request(context.url, {
-                        ...initParams,
-                        cache: 'no-store',
-                        mode: 'cors',
-                        credentials: 'omit',
-                        signal: controller.signal,
-                        headers: {
-                            ...initParams.headers,
-                            'Cache-Control': 'no-cache, no-store, must-revalidate',
-                            'Pragma': 'no-cache',
-                            'User-Agent': 'Mozilla/5.0 (compatible; IPTV-WebPlayer/1.0; +https://vercel.app)'
+                // Destroy existing HLS instance
+                if (hls) {
+                    hls.destroy();
+                }
+
+                // Create new HLS instance with enhanced configuration
+                hls = new Hls({
+                    debug: false,
+                    enableWorker: true,
+                    lowLatencyMode: false, // Disable for better cloud compatibility
+                    backBufferLength: 20, // Reduced for cloud environments
+                    maxBufferLength: 30, // Prevent excessive buffering
+                    maxBufferSize: 60 * 1000 * 1000, // 60MB max buffer
+                    fragLoadingMaxRetry: 6, // Increased retries for cloud
+                    manifestLoadingMaxRetry: 6,
+                    levelLoadingMaxRetry: 6,
+                    fragLoadingTimeOut: 25000, // Increased timeout for cloud latency
+                    manifestLoadingTimeOut: 15000,
+                    levelLoadingTimeOut: 15000,
+                    fragLoadingRetryDelay: 1000, // Delay between retries
+                    manifestLoadingRetryDelay: 1000,
+                    // Enhanced for Vercel/cloud deployment
+                    xhrSetup: function(xhr, url) {
+                        // Set headers for better compatibility in cloud environments
+                        xhr.withCredentials = false;
+                        xhr.timeout = 25000; // 25 second timeout
+                        xhr.setRequestHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+                        xhr.setRequestHeader('Pragma', 'no-cache');
+                        xhr.setRequestHeader('User-Agent', 'Mozilla/5.0 (compatible; IPTV-WebPlayer/1.0; +https://vercel.app)');
+                    },
+                    fetchSetup: function(context, initParams) {
+                        // Enhanced fetch setup for Vercel with better error handling
+                        const controller = new AbortController();
+                        setTimeout(() => controller.abort(), 25000); // 25s timeout
+                        
+                        return new Request(context.url, {
+                            ...initParams,
+                            cache: 'no-store',
+                            mode: 'cors',
+                            credentials: 'omit',
+                            signal: controller.signal,
+                            headers: {
+                                ...initParams.headers,
+                                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                                'Pragma': 'no-cache',
+                                'User-Agent': 'Mozilla/5.0 (compatible; IPTV-WebPlayer/1.0; +https://vercel.app)'
+                            }
+                        });
+                    }
+                });
+
+                let resolved = false;
+                const timeoutId = setTimeout(() => {
+                    if (!resolved) {
+                        resolved = true;
+                        console.log('HLS.js timeout');
+                        if (hls) hls.destroy();
+                        resolve(false);
+                    }
+                }, 15000);
+
+                hls.loadSource(url);
+                hls.attachMedia(videoPlayer);
+                
+                hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    console.log('HLS manifest parsed successfully');
+                    videoPlayer.play().then(() => {
+                        if (!resolved) {
+                            resolved = true;
+                            clearTimeout(timeoutId);
+                            updateStatus('online', `Playing: ${name}`);
+                            channelNameDisplay.textContent = `Now Playing: ${name}`;
+                            updateDebugInfo(url, 'HLS.js', 'Success');
+                            applyQualitySettings();
+                            resolve(true);
+                        }
+                    }).catch(err => {
+                        console.error('HLS play promise rejected:', err);
+                        if (!resolved) {
+                            resolved = true;
+                            clearTimeout(timeoutId);
+                            if (hls) hls.destroy();
+                            resolve(false);
                         }
                     });
-                }
-            });
-
-            hls.loadSource(url);
-            hls.attachMedia(videoPlayer);
-            
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                console.log('HLS manifest parsed successfully');
-                videoPlayer.play().then(() => {
-                    updateStatus('online', `Playing: ${name}`);
-                    channelNameDisplay.textContent = `Now Playing: ${name}`;
-                    applyQualitySettings();
-                }).catch(err => {
-                    console.error('HLS play promise rejected:', err);
-                    // Try native HLS or proxied URL
-                    tryNativeHlsPlayback(cleanUrl, name, channelId);
                 });
-            });
 
-            hls.on(Hls.Events.ERROR, (event, data) => {
-                console.error('HLS Error:', data);
-                if (data.fatal) {
-                    switch(data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            console.log('HLS network error, trying proxied URL...');
-                            tryProxiedPlayback(url, name, channelId);
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                            console.log('HLS media error, trying to recover...');
-                            try {
-                                hls.recoverMediaError();
-                            } catch (recoverError) {
-                                console.log('Recovery failed, trying native HLS...');
-                                tryNativeHlsPlayback(url, name, channelId);
-                            }
-                            break;
-                        default:
-                            console.log('Fatal HLS error, trying native HLS...');
-                            tryNativeHlsPlayback(url, name, channelId);
-                            break;
+                hls.on(Hls.Events.ERROR, (event, data) => {
+                    console.error('HLS Error:', data);
+                    if (data.fatal && !resolved) {
+                        resolved = true;
+                        clearTimeout(timeoutId);
+                        if (hls) hls.destroy();
+                        updateDebugInfo(url, 'HLS.js', 'Failed', data.type);                        resolve(false);
                     }
-                }
-            });
-        }
-
-        function tryNativeHlsPlayback(url, name, channelId) {
-            console.log(`Trying native HLS playback: ${url}`);
-            
-            videoPlayer.src = url;
-            videoPlayer.load();
-            
-            const playPromise = videoPlayer.play();
-            if (playPromise !== undefined) {
-                playPromise.then(() => {
-                    console.log('Native HLS playback successful');
-                    updateStatus('online', `Playing: ${name}`);
-                    channelNameDisplay.textContent = `Now Playing: ${name}`;
-                }).catch(err => {
-                    console.error('Native HLS playback failed:', err);
-                    // Try with different MIME types
-                    tryAlternativeFormats(url, name, channelId);
                 });
-            }
+            });
+        }        function tryNativeHlsPlayback(url, name, channelId) {
+            return new Promise((resolve, reject) => {
+                console.log(`Trying native HLS playback: ${url}`);
+                incrementDebugAttempts();
+                updateDebugInfo(url, 'Native HLS', 'Attempting native HLS playback');
+                
+                // Reset video element
+                videoPlayer.src = '';
+                videoPlayer.removeAttribute('type');
+                videoPlayer.load();
+                
+                let resolved = false;
+                const timeoutId = setTimeout(() => {
+                    if (!resolved) {
+                        resolved = true;
+                        console.log('Native HLS timeout');
+                        updateDebugInfo(url, 'Native HLS', 'Timeout');
+                        resolve(false);
+                    }
+                }, 10000);
+                
+                const cleanup = () => {
+                    clearTimeout(timeoutId);
+                    videoPlayer.removeEventListener('loadeddata', onSuccess);
+                    videoPlayer.removeEventListener('error', onError);
+                };
+                
+                const onSuccess = () => {
+                    if (!resolved) {
+                        resolved = true;
+                        console.log('Native HLS playback successful');
+                        updateStatus('online', `Playing: ${name}`);
+                        channelNameDisplay.textContent = `Now Playing: ${name}`;
+                        updateDebugInfo(url, 'Native HLS', 'Success');
+                        cleanup();
+                        resolve(true);
+                    }
+                };
+                
+                const onError = (error) => {
+                    if (!resolved) {
+                        resolved = true;
+                        console.error('Native HLS playback failed:', error);
+                        updateDebugInfo(url, 'Native HLS', 'Failed');
+                        cleanup();
+                        resolve(false);
+                    }
+                };
+                
+                // Set up event listeners
+                videoPlayer.addEventListener('loadeddata', onSuccess, { once: true });
+                videoPlayer.addEventListener('error', onError, { once: true });
+                
+                // Set source with HLS MIME type
+                videoPlayer.src = url;
+                videoPlayer.setAttribute('type', 'application/vnd.apple.mpegurl');
+                videoPlayer.load();
+            });
         }
 
         function tryAlternativeFormats(url, name, channelId) {
