@@ -200,9 +200,11 @@
                 
                 <button id="add-playlist-btn" class="w-full bg-green-600 hover:bg-green-700 p-2 rounded">Add Playlist</button>
             </div>
-            <button id="close-modal-btn" class="mt-4 w-full bg-gray-600 hover:bg-gray-700 p-2 rounded">Close</button>
-        </div>
-    </div>    <script>    document.addEventListener('DOMContentLoaded', () => {
+            <button id="close-modal-btn" class="mt-4 w-full bg-gray-600 hover:bg-gray-700 p-2 rounded">Close</button>        </div>
+    </div>
+    
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
         // --- SECURITY CONTEXT DETECTION ---
         const isHttpsPage = window.location.protocol === 'https:';
         const isDevelopmentLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
@@ -463,6 +465,54 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             }
         }
         
+        /**
+         * Analyzes a stream URL to provide insights about HTTPS compatibility
+         * @param {string} url - The stream URL to analyze
+         * @returns {object} - Analysis results
+         */
+        function analyzeStreamCompatibility(url) {
+            const analysis = {
+                isHttp: url.startsWith('http://'),
+                isHttps: url.startsWith('https://'),
+                likelyHttpsIncompatible: false,
+                reason: '',
+                suggestions: []
+            };
+            
+            if (analysis.isHttp) {
+                // Check for common IPTV/streaming patterns that are typically HTTP-only
+                const httpOnlyPatterns = [
+                    /:\d{4,5}\//,  // Non-standard ports (e.g., :8080/, :1935/)
+                    /\/live\//,    // Live streaming endpoints
+                    /\/stream\//,  // Stream endpoints
+                    /\.ts$/,       // Transport stream files
+                    /playlist\.m3u8/, // HLS playlists
+                    /chunklist/,   // HLS chunks
+                    /udp:\/\//,    // UDP streams
+                    /rtmp:\/\//,   // RTMP streams
+                ];
+                
+                analysis.likelyHttpsIncompatible = httpOnlyPatterns.some(pattern => pattern.test(url));
+                
+                if (analysis.likelyHttpsIncompatible) {
+                    analysis.reason = 'URL contains patterns typical of HTTP-only streaming infrastructure';
+                    analysis.suggestions = [
+                        'Use proxy methods to bypass mixed content restrictions',
+                        'Streaming servers often use HTTP due to SSL certificate costs',
+                        'Consider asking provider about HTTPS support'
+                    ];
+                } else {
+                    analysis.reason = 'HTTP URL that might support HTTPS upgrade';
+                    analysis.suggestions = [
+                        'Try HTTPS upgrade first',
+                        'Fallback to proxy methods if HTTPS fails'
+                    ];
+                }
+            }
+            
+            return analysis;
+        }
+
         function init() {
             loadStateFromStorage();
             renderPlaylistSelect();
@@ -498,7 +548,9 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             videoPlayer.addEventListener('playing', () => {
                 console.log('Video is playing');
                 hideError(); // Hide any previous errors when video starts playing
-            });            videoPlayer.addEventListener('error', (e) => {
+            });
+            
+            videoPlayer.addEventListener('error', (e) => {
                 const error = videoPlayer.error;
                 console.error('Video element error:', error);
                 
@@ -783,7 +835,9 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
                     <div class="text-xs text-gray-300 mt-2 pl-13">
                         <p class="truncate" title="${now || 'No EPG data'}"><strong>Now:</strong> ${now || '...'}</p>
                         <p class="truncate" title="${next || 'No EPG data'}"><strong>Next:</strong> ${next || '...'}</p>
-                    </div>`;                channelCard.addEventListener('click', (e) => {
+                    </div>`;
+                
+                channelCard.addEventListener('click', (e) => {
                     if (e.target.classList.contains('favorite-star')) {
                         toggleFavorite(channel.id);
                         e.stopPropagation();
@@ -821,17 +875,21 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
                 if (altMatch) {
                     const m3u8Url = altMatch[1] + altMatch[2] + '.m3u8';
                     console.log(`Converting alternative .ts URL to M3U8: ${url} -> ${m3u8Url}`);
-                    return m3u8Url;
-                }
+                    return m3u8Url;                }
             }
-              return url; // Return original URL if no conversion needed
-        }        function playChannel(url, name, channelId) {
+            
+            return url; // Return original URL if no conversion needed
+        }
+
+        function playChannel(url, name, channelId) {
             if (hls) hls.destroy();
             updateStatus('loading', `Loading ${name}...`);
             
             // Reset debug state for new channel
             resetDebugState();
-            updateDebugInfo(url, 'Initializing', 'Starting playback');            // Clean and validate the URL
+            updateDebugInfo(url, 'Initializing', 'Starting playback');
+            
+            // Clean and validate the URL
             let cleanUrl;
             try {
                 cleanUrl = validateUrl(url.trim());
@@ -856,38 +914,51 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             
             // Enhanced playback strategy with better fallbacks
             playWithFallbackStrategy(convertedUrl, name, channelId);
-        }        async function playWithFallbackStrategy(url, name, channelId) {
-            console.log(`Starting playback with fallback strategy for: ${url}`);
+        }
+
+        async function playWithFallbackStrategy(url, name, channelId) {
+            console.log(`🚀 Starting UNIVERSAL playback strategy for: ${url}`);
             resetDebugState();
-              // Enhanced Mixed Content detection and handling
+            
+            // Universal approach - try ALL methods regardless of URL type
             const isHttpUrl = url.startsWith('http://');
             const isHttpsPage = window.location.protocol === 'https:';
             const hasMixedContentIssue = isHttpUrl && isHttpsPage;
             
+            if (hasMixedContentIssue) {
+                console.warn('🔒 Mixed Content detected - will try ALL available methods to make this stream work');
+                showError('🔒 Mixed Content detected - trying all available methods to bypass browser restrictions...');
+            } else {
+                console.log('🎯 Direct playback possible - will still try all methods if needed');
+            }
+            
+            // COMPREHENSIVE strategy list - try EVERYTHING
             let strategies = [];
             
-            if (hasMixedContentIssue && !window.securityContext.isDevelopment) {
-                console.warn('🔒 Mixed Content detected - HTTP stream on HTTPS page. Using enhanced secure strategy.');
-                showError(`🔒 Mixed Content Warning: HTTP stream detected on HTTPS site. Trying secure methods...`);
-                
-                // For Mixed Content, prioritize secure proxy methods
+            if (hasMixedContentIssue) {
+                // For mixed content, start with proxy methods that are most likely to work
                 strategies = [
-                    { name: 'HTTPS Upgrade', method: () => tryHttpsUpgrade(url, name, channelId) },
-                    { name: 'Vercel Proxy', method: () => tryServerProxy(url, name, channelId) },
+                    { name: 'Vercel Proxy + HLS.js', method: () => tryServerProxy(url, name, channelId) },
                     { name: 'Secure Proxy (cors-anywhere)', method: () => trySecureProxy(url, name, channelId) },
-                    { name: 'External Proxies', method: () => tryProxiedPlayback(url, name, channelId) }
+                    { name: 'External Proxy Network', method: () => tryProxiedPlayback(url, name, channelId) },
+                    { name: 'HTTPS Upgrade (if compatible)', method: () => tryHttpsUpgrade(url, name, channelId) },
+                    { name: 'Direct + HLS.js (force attempt)', method: () => tryHlsPlayback(url, name, channelId) },
+                    { name: 'Native Browser HLS', method: () => tryNativeHlsPlayback(url, name, channelId) },
+                    { name: 'Direct Stream (last resort)', method: () => tryDirectPlayback(url, name, channelId) }
                 ];
             } else {
-                // For HTTPS URLs or development environment, use normal strategy
+                // For non-mixed content, start with direct methods but still have full fallback
                 strategies = [
                     { name: 'Direct Stream', method: () => tryDirectPlayback(url, name, channelId) },
-                    { name: 'HLS.js', method: () => tryHlsPlayback(url, name, channelId) },
-                    { name: 'Native HLS', method: () => tryNativeHlsPlayback(url, name, channelId) },
-                    { name: 'Vercel Proxy', method: () => tryServerProxy(url, name, channelId) },
-                    { name: 'External Proxies', method: () => tryProxiedPlayback(url, name, channelId) }
-                ];
-            }
-
+                    { name: 'HLS.js Enhanced', method: () => tryHlsPlayback(url, name, channelId) },
+                    { name: 'Native Browser HLS', method: () => tryNativeHlsPlayback(url, name, channelId) },
+                    { name: 'Vercel Proxy Backup', method: () => tryServerProxy(url, name, channelId) },
+                    { name: 'Secure Proxy Backup', method: () => trySecureProxy(url, name, channelId) },
+                    { name: 'External Proxy Network', method: () => tryProxiedPlayback(url, name, channelId) },
+                    { name: 'HTTPS Upgrade (if needed)', method: () => tryHttpsUpgrade(url, name, channelId) }
+                ];            }
+            
+            // Try each strategy until one works
             for (let i = 0; i < strategies.length; i++) {
                 const strategy = strategies[i];
                 console.log(`Trying strategy ${i + 1}/${strategies.length}: ${strategy.name}`);
@@ -911,22 +982,33 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
                 if (i < strategies.length - 1) {
                     await new Promise(resolve => setTimeout(resolve, 1500));
                 }
-            }
-              // All strategies failed
+            }            // All strategies failed - provide comprehensive error message
             const errorMsg = hasMixedContentIssue && !window.securityContext.isDevelopment
-                ? `❌ Mixed Content Security Block
+                ? `❌ Unable to Play HTTP Stream on HTTPS Site
 
-The stream URL uses HTTP, but this site is HTTPS. Modern browsers block mixed content for security.
+🔒 Browser Security: This HTTPS site cannot directly play HTTP streams due to Mixed Content security policies.
 
 🌐 Stream URL: ${url}
 
-🔧 Solutions:
-• Contact the stream provider to use HTTPS
-• Try accessing via HTTP version of this site (if available)
-• Use a browser extension to allow mixed content
-• Report this issue to get it fixed
+💡 Reality Check: Most IPTV/streaming services use HTTP-only infrastructure because:
+• HTTPS certificates are expensive for streaming providers
+• HTTPS adds latency that affects video quality
+• Many streaming devices don't support HTTPS
+• Legacy infrastructure limitations
 
-📋 Debug: All secure proxy methods exhausted`
+🔧 We automatically tried these secure methods:
+✗ Vercel proxy server (primary method)
+✗ CORS proxy services (backup methods)  
+✗ HTTPS upgrade attempt (server doesn't support it)
+✗ Multiple proxy networks (may be blocked)
+
+🛠️ Possible solutions:
+• Try accessing via HTTP: http://${window.location.host}
+• Contact your IPTV provider about HTTPS support
+• Use a dedicated IPTV app instead of web browser
+• Try from a different network (some ISPs block proxies)
+
+⚠️ This is a common limitation with web-based IPTV players on HTTPS sites.`
                 : `❌ Stream Unavailable
 
 Unable to play the stream after trying multiple methods.
@@ -940,9 +1022,9 @@ Unable to play the stream after trying multiple methods.
 • Contact support if the issue persists
 
 📋 Debug: All playback strategies failed`;
-            
-            console.error('All playback strategies failed for:', url);
-            updateStatus('error', 'Unable to play stream');            updateDebugInfo(url, 'All Strategies Failed', 'Error', errorMsg);
+              console.error('All playback strategies failed for:', url);
+            updateStatus('error', 'Unable to play stream');
+            updateDebugInfo(url, 'All Strategies Failed', 'Error', errorMsg);
             showError(errorMsg);
             channelNameDisplay.textContent = `Failed: ${name}`;
         }
@@ -1133,7 +1215,9 @@ Unable to play the stream after trying multiple methods.
                             resolve(false);
                         }
                     });
-                });                hls.on(Hls.Events.ERROR, (event, data) => {
+                });
+                
+                hls.on(Hls.Events.ERROR, (event, data) => {
                     console.error('HLS Error:', event, data);
                     
                     if (data.fatal) {
@@ -1774,8 +1858,7 @@ Stream URL: ${url}`;
          * @param {string} name - Channel name
          * @param {string} channelId - Channel ID
          * @returns {Promise<boolean>} - True if successful, false otherwise
-         */
-        async function tryHttpsUpgrade(url, name, channelId) {
+         */        async function tryHttpsUpgrade(url, name, channelId) {
             console.log('🔒 Attempting HTTPS upgrade for mixed content resolution...');
             
             // Only attempt if URL is HTTP
@@ -1788,28 +1871,55 @@ Stream URL: ${url}`;
                 const httpsUrl = url.replace('http://', 'https://');
                 console.log(`🔄 Upgrading URL: ${url} -> ${httpsUrl}`);
                 
-                updateDebugInfo(httpsUrl, 'HTTPS Upgrade', 'Testing HTTPS version to resolve mixed content');
+                updateDebugInfo(httpsUrl, 'HTTPS Upgrade', 'Testing', 'Checking if HTTPS version exists');
                 
-                // Test if HTTPS version is accessible with minimal headers to avoid CORS issues
-                const response = await fetch(httpsUrl, {
-                    method: 'HEAD',
-                    mode: 'cors',
-                    cache: 'no-store',
-                    credentials: 'omit',
-                    signal: AbortSignal.timeout(10000), // 10 second timeout
-                    headers: {
-                        'Accept': '*/*'
+                // Test if HTTPS version is accessible with reduced timeout and better error handling
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+                
+                try {
+                    const response = await fetch(httpsUrl, {
+                        method: 'HEAD',
+                        mode: 'cors',
+                        cache: 'no-store',
+                        credentials: 'omit',
+                        signal: controller.signal,
+                        headers: {
+                            'Accept': '*/*',
+                            'User-Agent': 'Mozilla/5.0 (compatible; IPTV-Player)'
+                        }
+                    });
+                    
+                    clearTimeout(timeoutId);
+                    
+                    if (!response.ok) {
+                        console.log(`❌ HTTPS upgrade failed: HTTP ${response.status} ${response.statusText}`);
+                        updateDebugInfo(httpsUrl, 'HTTPS Upgrade', 'Failed', `Server returned ${response.status} - HTTPS not supported`);
+                        return false;
                     }
-                });
-                
-                if (!response.ok) {
-                    console.log(`❌ HTTPS upgrade failed: HTTP ${response.status} ${response.statusText}`);
-                    updateDebugInfo(httpsUrl, 'HTTPS Upgrade', 'Failed', `Server returned ${response.status}`);
+                    
+                    console.log('✅ HTTPS version is accessible, attempting playback...');
+                    updateDebugInfo(httpsUrl, 'HTTPS Upgrade', 'Success', 'HTTPS version accessible');
+                    
+                } catch (fetchError) {
+                    clearTimeout(timeoutId);
+                    
+                    // Common HTTPS upgrade failure scenarios
+                    if (fetchError.name === 'AbortError') {
+                        console.log('❌ HTTPS upgrade timeout - server likely doesn\'t support HTTPS');
+                        updateDebugInfo(httpsUrl, 'HTTPS Upgrade', 'Failed', 'Timeout - HTTPS not supported');
+                    } else if (fetchError.message.includes('net::ERR_SSL') || fetchError.message.includes('SSL')) {
+                        console.log('❌ HTTPS upgrade failed - SSL/TLS certificate issues');
+                        updateDebugInfo(httpsUrl, 'HTTPS Upgrade', 'Failed', 'SSL certificate error');
+                    } else if (fetchError.message.includes('net::ERR_CONNECTION_REFUSED')) {
+                        console.log('❌ HTTPS upgrade failed - server doesn\'t accept HTTPS connections');
+                        updateDebugInfo(httpsUrl, 'HTTPS Upgrade', 'Failed', 'HTTPS port not available');
+                    } else {
+                        console.log('❌ HTTPS upgrade failed - general network error:', fetchError.message);
+                        updateDebugInfo(httpsUrl, 'HTTPS Upgrade', 'Failed', 'Network error - HTTPS not available');
+                    }
                     return false;
                 }
-                
-                console.log('✅ HTTPS version is accessible, attempting playback...');
-                updateDebugInfo(httpsUrl, 'HTTPS Upgrade', 'Success', 'HTTPS version accessible');
                 
                 // Try both direct and HLS playback for HTTPS URL
                 if (httpsUrl.includes('.m3u8') || httpsUrl.includes('playlist')) {
@@ -1926,28 +2036,53 @@ Stream URL: ${url}`;
          * @param {string} name - Channel name
          * @param {string} channelId - Channel ID
          * @returns {Promise<boolean>} - True if successful, false otherwise
-         */
-        async function tryServerProxy(url, name, channelId) {
-            console.log('Attempting server proxy playback...');
+         */        async function tryServerProxy(url, name, channelId) {
+            console.log('🔄 Attempting server proxy playback for HTTP stream on HTTPS page...');
             
             try {
                 // Use our API proxy endpoint if available
                 const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`;
                 
-                updateDebugInfo(proxyUrl, 'Server Proxy', 'Using server-side proxy');
+                updateDebugInfo(proxyUrl, 'Server Proxy', 'Testing', 'Using Vercel serverless proxy to bypass mixed content');
                 
-                // Test proxy availability first
-                const testResponse = await fetch(proxyUrl, {
-                    method: 'HEAD',
-                    signal: AbortSignal.timeout(10000) // 10 second timeout
-                });
+                // Test proxy availability first with timeout
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
                 
-                if (!testResponse.ok) {
-                    console.log(`Server proxy not available: HTTP ${testResponse.status}`);
+                try {
+                    const testResponse = await fetch(proxyUrl, {
+                        method: 'HEAD',
+                        signal: controller.signal
+                    });
+                    
+                    clearTimeout(timeoutId);
+                    
+                    if (!testResponse.ok) {
+                        if (testResponse.status === 502 || testResponse.status === 503) {
+                            console.log(`❌ Server proxy failed: Streaming server unreachable (${testResponse.status})`);
+                            updateDebugInfo(proxyUrl, 'Server Proxy', 'Failed', 'Streaming server unreachable - common with HTTP-only IPTV servers');
+                        } else {
+                            console.log(`❌ Server proxy failed: HTTP ${testResponse.status}`);
+                            updateDebugInfo(proxyUrl, 'Server Proxy', 'Failed', `Proxy error ${testResponse.status}`);
+                        }
+                        return false;
+                    }
+                    
+                    console.log('✅ Server proxy accessible, attempting stream playback...');
+                    updateDebugInfo(proxyUrl, 'Server Proxy', 'Success', 'Proxy responding, trying playback');
+                    
+                } catch (proxyError) {
+                    clearTimeout(timeoutId);
+                    
+                    if (proxyError.name === 'AbortError') {
+                        console.log('❌ Server proxy timeout - streaming server likely slow or unreachable');
+                        updateDebugInfo(proxyUrl, 'Server Proxy', 'Failed', 'Timeout - streaming server too slow');
+                    } else {
+                        console.log('❌ Server proxy network error:', proxyError.message);
+                        updateDebugInfo(proxyUrl, 'Server Proxy', 'Failed', 'Network error reaching streaming server');
+                    }
                     return false;
                 }
-                
-                console.log('Server proxy is available, attempting playback...');
                 
                 // Check if it's an HLS stream
                 if (url.includes('.m3u8') || url.includes('playlist')) {
@@ -2151,8 +2286,7 @@ Stream URL: ${url}`;
                                 return true;
                             }
                         }
-                    } else {
-                        // Direct proxy playback for non-HLS streams
+                    } else {                        // Direct proxy playback for non-HLS streams
                         const success = await new Promise((resolve) => {
                             videoPlayer.src = proxyUrl;
                             
@@ -2177,8 +2311,7 @@ Stream URL: ${url}`;
                             
                             videoPlayer.addEventListener('canplay', onCanPlay, { once: true });
                             videoPlayer.addEventListener('error', onError, { once: true });
-                            
-                            // Timeout after 10 seconds
+                              // Timeout after 10 seconds
                             setTimeout(() => {
                                 cleanup();
                                 resolve(false);
@@ -2189,7 +2322,7 @@ Stream URL: ${url}`;
                             return true;
                         }
                     }
-                      } catch (error) {
+                } catch (error) {
                     console.log(`Secure proxy ${proxy} failed:`, error.message);
                     updateDebugInfo('', '', 'Failed', `Secure proxy ${proxy} error: ${error.message}`);
                     // Continue to next proxy
