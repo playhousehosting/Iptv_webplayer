@@ -203,17 +203,18 @@
             <button id="close-modal-btn" class="mt-4 w-full bg-gray-600 hover:bg-gray-700 p-2 rounded">Close</button>        </div>
     </div>
     
-    <script>
-    document.addEventListener('DOMContentLoaded', () => {
+    <script>    document.addEventListener('DOMContentLoaded', () => {
         // --- SECURITY CONTEXT DETECTION ---
         const isHttpsPage = window.location.protocol === 'https:';
         const isDevelopmentLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-          // Store security context globally for use throughout the app
+        
+        // Store security context globally for use throughout the app
         window.securityContext = {
             isHttps: isHttpsPage,
             isDevelopment: isDevelopmentLocal,
-            mixedContentBlocked: isHttpsPage && !isDevelopmentLocal,
-            cspEnabled: false
+            mixedContentBlocked: false, // Set to false to allow all fallback attempts
+            cspEnabled: false,
+            allowAllMethods: true // Force allow all playback methods
         };
         
         // Check for Content Security Policy
@@ -232,10 +233,12 @@
             });
         });
         
+        // More permissive logging - don't restrict functionality
         if (window.securityContext.isHttps && !window.securityContext.isDevelopment) {
-            console.log('🔒 HTTPS page detected - Mixed Content security active');
+            console.log('🔒 HTTPS page detected - Will use comprehensive fallback strategies for HTTP streams');
         }
-          console.log('🔍 Security Context:', window.securityContext);
+        
+        console.log('🔍 Security Context:', window.securityContext);
         
         // --- CONSTANTS ---
         // Enhanced proxy list with development fallbacks
@@ -983,32 +986,30 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
                     await new Promise(resolve => setTimeout(resolve, 1500));
                 }
             }            // All strategies failed - provide comprehensive error message
-            const errorMsg = hasMixedContentIssue && !window.securityContext.isDevelopment
-                ? `❌ Unable to Play HTTP Stream on HTTPS Site
+            const errorMsg = hasMixedContentIssue
+                ? `❌ Stream Playback Failed - Tried All Available Methods
 
-🔒 Browser Security: This HTTPS site cannot directly play HTTP streams due to Mixed Content security policies.
+🔒 Mixed Content Detected: HTTP stream on HTTPS site - tried all secure fallback methods.
 
 🌐 Stream URL: ${url}
 
-💡 Reality Check: Most IPTV/streaming services use HTTP-only infrastructure because:
-• HTTPS certificates are expensive for streaming providers
-• HTTPS adds latency that affects video quality
-• Many streaming devices don't support HTTPS
-• Legacy infrastructure limitations
-
-🔧 We automatically tried these secure methods:
-✗ Vercel proxy server (primary method)
-✗ CORS proxy services (backup methods)  
+� Attempted Methods:
+✗ Multiple proxy servers (primary method)
+✗ CORS bypass services (backup methods)  
 ✗ HTTPS upgrade attempt (server doesn't support it)
-✗ Multiple proxy networks (may be blocked)
+✗ Multiple secure proxy networks
+
+💡 This is common with IPTV streams because:
+• Many streaming providers use HTTP-only infrastructure
+• HTTPS certificates are expensive for streaming services
+• Some legacy streaming equipment doesn't support HTTPS
 
 🛠️ Possible solutions:
-• Try accessing via HTTP: http://${window.location.host}
+• Try a different stream from your playlist
 • Contact your IPTV provider about HTTPS support
-• Use a dedicated IPTV app instead of web browser
-• Try from a different network (some ISPs block proxies)
+• Access via HTTP if available: http://${window.location.host}
 
-⚠️ This is a common limitation with web-based IPTV players on HTTPS sites.`
+⚠️ Note: Browser security prevents direct HTTP playback on HTTPS sites, but we automatically tried all secure workarounds.`
                 : `❌ Stream Unavailable
 
 Unable to play the stream after trying multiple methods.
@@ -2327,26 +2328,11 @@ Stream URL: ${url}`;
                     updateDebugInfo('', '', 'Failed', `Secure proxy ${proxy} error: ${error.message}`);
                     // Continue to next proxy
                 }
-            }
-
-            console.log('All secure proxies failed');
+            }            console.log('All secure proxies failed');
             return false;
         }
 
-        // Initialize the application
-        function init() {
-            try {
-                // Initialize security detection
-                if (window.securityContext.isHttps && !window.securityContext.isDevelopment) {
-                    console.log('🔒 HTTPS page detected - Mixed Content security active');
-                }
-                
-                console.log('🔍 Security Context:', window.securityContext);
-            } catch (error) {
-                console.error('Error initializing security context:', error);
-            }
-        }
-
+        // Initialize the application when DOM is ready
         init();
     });
     </script>
