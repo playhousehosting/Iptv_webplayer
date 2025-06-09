@@ -316,6 +316,33 @@
         const debugTestBtn = document.getElementById('debug-test');
         
         // --- STATE MANAGEMENT ---
+        function loadStateFromStorage() {
+            try {
+                const saved = localStorage.getItem('iptvPlayerState');
+                if (saved) {
+                    const savedState = JSON.parse(saved);
+                    appState = { ...appState, ...savedState };
+                    console.log('🔄 Loaded state from storage');
+                }
+            } catch (error) {
+                console.error('Error loading state from storage:', error);
+            }
+        }
+
+        function saveStateToStorage() {
+            try {
+                localStorage.setItem('iptvPlayerState', JSON.stringify(appState));
+            } catch (error) {
+                console.error('Error saving state to storage:', error);
+            }
+        }
+
+        // Save state when app state changes
+        function updateAppState(updates) {
+            appState = { ...appState, ...updates };
+            saveStateToStorage();
+        }
+
         let hls = null;
         let currentChannelIndex = -1;
         let displayedChannels = [];
@@ -485,7 +512,7 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             if (analysis.isHttp) {
                 // Check for common IPTV/streaming patterns that are typically HTTP-only
                 const httpOnlyPatterns = [
-                    /:\d{4,5}\//,  // Non-standard ports (e.g., :8080/, :1935/)
+                    /:\d{4,5}\//,  // Non-Standard ports (e.g., :8080/, :1935/)
                     /\/live\//,    // Live streaming endpoints
                     /\/stream\//,  // Stream endpoints
                     /\.ts$/,       // Transport stream files
@@ -631,14 +658,17 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             videoPlayer.addEventListener('waiting', () => {
                 console.log('Video waiting for data');
                 updateStatus('loading', 'Buffering...');
-            });
-
-            videoPlayer.addEventListener('timeupdate', () => {
+            });            videoPlayer.addEventListener('timeupdate', () => {
                 // Update status back to playing if we were buffering
                 if (statusIndicator.classList.contains('status-loading') && !videoPlayer.paused) {
                     const currentChannelName = channelNameDisplay.textContent.replace('Now Playing: ', '');
                     updateStatus('online', `Playing: ${currentChannelName}`);
                 }
+            });
+
+            // Save volume changes
+            videoPlayer.addEventListener('volumechange', () => {
+                updateAppState({ volume: videoPlayer.volume });
             });
         }
 
@@ -2287,7 +2317,8 @@ Stream URL: ${url}`;
                                 return true;
                             }
                         }
-                    } else {                        // Direct proxy playback for non-HLS streams
+                    } else {
+                        // Direct proxy playback for non-HLS streams
                         const success = await new Promise((resolve) => {
                             videoPlayer.src = proxyUrl;
                             
