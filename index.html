@@ -964,6 +964,44 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             }
         }
 
+        function addPlaylist() {
+            const name = newPlaylistNameInput.value.trim();
+            const url = newPlaylistUrlInput.value.trim();
+            
+            if (!name || !url) {
+                showError('Please provide both playlist name and URL');
+                return;
+            }
+            
+            // Check if playlist already exists
+            if (appState.playlists.find(p => p.url === url)) {
+                showError('A playlist with this URL already exists');
+                return;
+            }
+            
+            // Add new playlist
+            const newPlaylist = {
+                id: Date.now().toString(),
+                name: name,
+                url: url,
+                epgUrl: '',
+                channels: []
+            };
+            
+            appState.playlists.push(newPlaylist);
+            saveStateToStorage();
+            
+            // Clear inputs
+            newPlaylistNameInput.value = '';
+            newPlaylistUrlInput.value = '';
+            
+            // Refresh the playlist displays
+            renderPlaylistSelect();
+            renderPlaylistManagerList();
+            
+            console.log('Playlist added successfully:', newPlaylist);
+        }
+
         function setupKeyboardShortcuts() {
             document.addEventListener('keydown', (e) => {
                 // Only handle shortcuts if not typing in an input field
@@ -1536,7 +1574,7 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
                             
                             const onError = (error) => {
                                 console.log(`Secure proxy ${proxy} direct playback failed:`, error);
-                                cleanup();
+                                                                                              cleanup();
                                 resolve(false);
                             };
                             
@@ -1564,10 +1602,37 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
                     // Continue to next proxy
                 }
             }            console.log('All secure proxies failed');
-            return false;
-        }
+            return false;        }
 
-        // Initialize the application when DOM is ready
+        function togglePictureInPicture() {
+            if (document.pictureInPictureElement) {
+                document.exitPictureInPicture().catch(err => {
+                    console.error('Error exiting PIP:', err);
+                });
+            } else if (videoPlayer.requestPictureInPicture) {
+                videoPlayer.requestPictureInPicture().catch(err => {
+                    console.error('Error entering PIP:', err);
+                    showError('Picture-in-Picture not supported or failed');
+                });
+            } else {
+                showError('Picture-in-Picture not supported by this browser');
+            }
+        }
+        
+        function toggleFullscreen() {
+            if (document.fullscreenElement) {
+                document.exitFullscreen().catch(err => {
+                    console.error('Error exiting fullscreen:', err);
+                });
+            } else if (videoPlayer.requestFullscreen) {
+                videoPlayer.requestFullscreen().catch(err => {
+                    console.error('Error entering fullscreen:', err);
+                    showError('Fullscreen not supported or failed');
+                });
+            } else {
+                showError('Fullscreen not supported by this browser');
+            }
+        }        // Initialize the application when DOM is ready
         init();
     });
     </script>
