@@ -1694,6 +1694,57 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             }
         }
 
+        function resetContent() {
+            console.log('🔄 resetContent called');
+            // Clear channel list
+            channelList.innerHTML = '<p class="text-gray-400 col-span-full text-center">Loading channels...</p>';
+            
+            // Reset app state
+            appState.allChannels = [];
+            appState.currentPlaylist = null;
+            
+            // Clear video
+            if (videoPlayer.src) {
+                videoPlayer.pause();
+                videoPlayer.src = '';
+                videoPlayer.load();
+            }
+            
+            // Clean up HLS if it exists
+            if (window.hls) {
+                window.hls.destroy();
+                window.hls = null;
+            }
+        }
+          function updateStatus(type, message) {
+            console.log('📊 updateStatus called:', type, message);
+            
+            // Clear all status classes
+            statusIndicator.classList.remove('status-online', 'status-loading', 'status-error');
+            
+            // Add the appropriate status class and show the indicator
+            if (type === 'online') {
+                statusIndicator.classList.add('status-online');
+                statusIndicator.style.display = 'inline-block';
+                statusIndicator.title = message || 'Online';
+            } else if (type === 'loading') {
+                statusIndicator.classList.add('status-loading');
+                statusIndicator.style.display = 'inline-block';
+                statusIndicator.title = message || 'Loading...';
+            } else if (type === 'error') {
+                statusIndicator.classList.add('status-error');
+                statusIndicator.style.display = 'inline-block';
+                statusIndicator.title = message || 'Error';
+            } else {
+                statusIndicator.style.display = 'none';
+            }
+            
+            // Update debug status if available
+            if (debugStatus) {
+                debugStatus.textContent = message || type;
+            }
+        }
+
         // Set up event listeners
         managePlaylistsBtn.addEventListener('click', () => {
             playlistModal.style.display = 'block';
