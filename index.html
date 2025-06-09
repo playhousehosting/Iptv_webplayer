@@ -962,19 +962,24 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
                 
                 console.log(`Deleted playlist: ${deletedPlaylist.name}`);
             }
-        }
-
-        function addPlaylist() {
+        }        function addPlaylist() {
+            console.log('Add playlist button clicked');
+            
             const name = newPlaylistNameInput.value.trim();
             const url = newPlaylistUrlInput.value.trim();
             
+            console.log('Playlist name:', name);
+            console.log('Playlist URL:', url);
+            
             if (!name || !url) {
+                console.log('Missing name or URL');
                 showError('Please provide both playlist name and URL');
                 return;
             }
             
             // Check if playlist already exists
             if (appState.playlists.find(p => p.url === url)) {
+                console.log('Playlist already exists');
                 showError('A playlist with this URL already exists');
                 return;
             }
@@ -988,6 +993,7 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
                 channels: []
             };
             
+            console.log('Adding new playlist:', newPlaylist);
             appState.playlists.push(newPlaylist);
             saveStateToStorage();
             
@@ -1000,6 +1006,9 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             renderPlaylistManagerList();
             
             console.log('Playlist added successfully:', newPlaylist);
+            
+            // Show success message
+            showError('Playlist added successfully!');
         }
 
         function setupKeyboardShortcuts() {
