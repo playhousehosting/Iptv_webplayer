@@ -1632,7 +1632,61 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             } else {
                 showError('Fullscreen not supported by this browser');
             }
-        }        // Initialize the application when DOM is ready
+        }
+
+        // Set up event listeners
+        managePlaylistsBtn.addEventListener('click', () => {
+            playlistModal.style.display = 'block';
+            renderPlaylistManagerList();
+        });
+        
+        closeModalBtn.addEventListener('click', () => {
+            playlistModal.style.display = 'none';
+        });
+        
+        // Close modal when clicking outside
+        playlistModal.addEventListener('click', (e) => {
+            if (e.target === playlistModal) {
+                playlistModal.style.display = 'none';
+            }
+        });
+        
+        // Load Playlist Button
+        loadBtn.addEventListener('click', loadPlaylist);
+        
+        // Add Playlist Button
+        addPlaylistBtn.addEventListener('click', addPlaylist);
+        
+        // Search functionality
+        searchInput.addEventListener('input', (e) => {
+            appState.searchTerm = e.target.value;
+            filterChannels();
+        });
+        
+        // Group filter
+        groupFilter.addEventListener('change', (e) => {
+            appState.selectedGroup = e.target.value;
+            filterChannels();
+        });
+        
+        // Quality selector
+        qualitySelect.addEventListener('change', (e) => {
+            appState.currentQuality = e.target.value;
+            saveStateToStorage();
+            applyQualitySettings();
+        });
+        
+        // Picture-in-Picture
+        if (pipBtn) {
+            pipBtn.addEventListener('click', togglePictureInPicture);
+        }
+        
+        // Fullscreen
+        if (fullscreenBtn) {
+            fullscreenBtn.addEventListener('click', toggleFullscreen);
+        }
+
+        // Initialize the application when DOM is ready
         init();
     });
     </script>
