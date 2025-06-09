@@ -1004,11 +1004,11 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             // Refresh the playlist displays
             renderPlaylistSelect();
             renderPlaylistManagerList();
+              console.log('Playlist added successfully:', newPlaylist);
             
-            console.log('Playlist added successfully:', newPlaylist);
-            
-            // Show success message
-            showError('Playlist added successfully!');
+            // Hide loading screen and show success message
+            hideLoadingScreen();
+            showError('Playlist added successfully!', true);
         }
 
         function setupKeyboardShortcuts() {
@@ -1643,6 +1643,57 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             }
         }
 
+        // --- UI FEEDBACK FUNCTIONS ---
+        function showError(message, isSuccess = false) {
+            console.log('🔴 showError called:', message, 'isSuccess:', isSuccess);
+            
+            // Hide both messages first
+            errorMessage.classList.add('hidden');
+            successMessage.classList.add('hidden');
+            
+            if (isSuccess) {
+                // Show success message
+                successText.textContent = message;
+                successMessage.classList.remove('hidden');
+                
+                // Auto-hide success messages after 3 seconds
+                setTimeout(() => {
+                    successMessage.classList.add('hidden');
+                }, 3000);
+            } else {
+                // Show error message
+                errorText.textContent = message;
+                errorMessage.classList.remove('hidden');
+                
+                // Auto-hide error messages after 5 seconds
+                setTimeout(() => {
+                    errorMessage.classList.add('hidden');
+                }, 5000);
+            }
+        }
+        
+        function showLoadingScreen(title = 'Loading...', details = 'Please wait...') {
+            console.log('⏳ showLoadingScreen called:', title, details);
+            
+            loadingTitle.textContent = title;
+            loadingDetails.textContent = details;
+            loadingProgress.textContent = '';
+            loadingStats.textContent = '';
+            loaderOverlay.classList.remove('hidden');
+        }
+        
+        function hideLoadingScreen() {
+            console.log('✅ hideLoadingScreen called');
+            loaderOverlay.classList.add('hidden');
+        }
+        
+        function updateLoadingProgress(progress, stats = '') {
+            loadingProgress.textContent = progress;
+            if (stats) {
+                loadingStats.textContent = stats;
+            }
+        }
+
         // Set up event listeners
         managePlaylistsBtn.addEventListener('click', () => {
             playlistModal.style.display = 'block';
@@ -1694,6 +1745,15 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
         if (fullscreenBtn) {
             fullscreenBtn.addEventListener('click', toggleFullscreen);
         }
+
+        // Error and success message close buttons
+        closeErrorBtn.addEventListener('click', () => {
+            errorMessage.classList.add('hidden');
+        });
+        
+        closeSuccessBtn.addEventListener('click', () => {
+            successMessage.classList.add('hidden');
+        });
 
         // Initialize the application when DOM is ready
         init();
