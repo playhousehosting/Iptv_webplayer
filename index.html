@@ -1697,10 +1697,32 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             console.log('🔴 hideError called');
             errorMessage.classList.add('hidden');
         }
-        
-        function hideSuccess() {
+          function hideSuccess() {
             console.log('🟢 hideSuccess called');
             successMessage.classList.add('hidden');
+        }
+        
+        function updateLoadingScreen(title, progress, details, stats, showProgressBar, progressPercent) {
+            console.log('⏳ updateLoadingScreen called:', title, progress, details, stats, showProgressBar, progressPercent);
+            
+            if (title) loadingTitle.textContent = title;
+            if (progress) loadingProgress.textContent = progress;
+            if (details) loadingDetails.textContent = details;
+            if (stats) loadingStats.textContent = stats;
+            
+            if (showProgressBar && progressBarContainer) {
+                progressBarContainer.classList.remove('hidden');
+                if (progressPercent !== undefined && progressBar) {
+                    progressBar.style.width = `${Math.max(0, Math.min(100, progressPercent))}%`;
+                }
+            } else if (progressBarContainer) {
+                progressBarContainer.classList.add('hidden');
+            }
+            
+            // Make sure loading screen is visible
+            if (loaderOverlay) {
+                loaderOverlay.classList.remove('hidden');
+            }
         }
 
         function resetContent() {
