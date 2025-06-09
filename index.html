@@ -1691,7 +1691,16 @@ Technical details: Network restrictions, CORS policies, or geographic blocking m
             loadingProgress.textContent = progress;
             if (stats) {
                 loadingStats.textContent = stats;
-            }
+            }        }
+        
+        function hideError() {
+            console.log('🔴 hideError called');
+            errorMessage.classList.add('hidden');
+        }
+        
+        function hideSuccess() {
+            console.log('🟢 hideSuccess called');
+            successMessage.classList.add('hidden');
         }
 
         function resetContent() {
